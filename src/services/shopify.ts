@@ -3,6 +3,7 @@ import { shopifyApi, ApiVersion } from '@shopify/shopify-api';
 import redis from './redis';
 
 let shopify: ReturnType<typeof shopifyApi> | null = null;
+let adminAccessToken: string | null = null;
 
 export async function initShopify(): Promise<void> {
   const oauthData = await redis.get('oauth');
@@ -11,6 +12,7 @@ export async function initShopify(): Promise<void> {
   }
 
   const { access_token: accessToken } = JSON.parse(oauthData);
+  adminAccessToken = accessToken;
 
   const apiVersion: ApiVersion = (process.env.SHOPIFY_API_VERSION as ApiVersion) || '2025-01';
 
@@ -30,4 +32,11 @@ export function getShopify() {
     throw new Error('Shopify API not initialized. Call initShopify() first.');
   }
   return shopify;
+}
+
+export function getAdminAccessToken(): string {
+  if (!adminAccessToken) {
+    throw new Error('Admin access token not available. Call initShopify() first.');
+  }
+  return adminAccessToken;
 }

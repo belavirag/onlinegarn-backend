@@ -12,22 +12,25 @@ vi.mock('../services/redis', () => ({
 }));
 
 vi.mock('../services/shopify', () => {
-  const mockQuery = vi.fn();
+  const mockRequest = vi.fn();
   
   class MockGraphqlClient {
-    query = mockQuery;
+    request = mockRequest;
   }
   
   return {
     getShopify: vi.fn(() => ({
-      config: {
-        adminApiAccessToken: 'test_token',
+      session: {
+        customAppSession: vi.fn(() => ({
+          accessToken: null,
+        })),
       },
       clients: {
         Graphql: MockGraphqlClient,
       },
     })),
-    __mockQuery: mockQuery,
+    getAdminAccessToken: vi.fn(() => 'test_token'),
+    __mockRequest: mockRequest,
   };
 });
 

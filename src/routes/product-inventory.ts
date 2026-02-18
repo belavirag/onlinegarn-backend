@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getShopify } from '../services/shopify';
+import { getShopify, getAdminAccessToken } from '../services/shopify';
 
 const router = Router();
 
@@ -109,11 +109,13 @@ const PRODUCT_AVAILABLE_INVENTORY_QUERY = `
 
 export async function fetchProductInventory(productId: string): Promise<ProductInventory> {
   const shopify = getShopify();
+  const accessToken = getAdminAccessToken();
   
-  // Use custom app session for admin API access
+  // Create session with the admin access token
   const session = shopify.session.customAppSession(
     process.env.SHOPIFY_SHOP_DOMAIN || 'unknown.myshopify.com'
   );
+  session.accessToken = accessToken;
 
   const client = new shopify.clients.Graphql({ session });
   const response = await client.request<GraphQLResponse>(PRODUCT_AVAILABLE_INVENTORY_QUERY, {
