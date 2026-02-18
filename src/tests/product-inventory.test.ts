@@ -31,6 +31,9 @@ vi.mock('../services/shopify', () => {
   };
 });
 
+// Mock the node adapter import
+vi.mock('@shopify/shopify-api/adapters/node', () => ({}));
+
 describe('Product Inventory Routes', () => {
   let app: Application;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;

@@ -1,3 +1,4 @@
+import '@shopify/shopify-api/adapters/node';
 import { shopifyApi, ApiVersion } from '@shopify/shopify-api';
 import redis from './redis';
 
