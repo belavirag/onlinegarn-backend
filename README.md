@@ -8,6 +8,7 @@ Node.js/TypeScript REST API built with Express.js.
 - TypeScript (strict mode)
 - Express.js
 - Redis (via ioredis)
+- Vitest + Supertest + MSW (testing)
 
 ## Getting Started
 
@@ -55,4 +56,6 @@ For Railway deployment, set `REDISHOST`, `REDISPORT`, and `REDISPASSWORD` in you
 | `npm run build` | Compile TypeScript to JavaScript |
 | `npm start` | Run compiled application |
 | `npm run dev` | Run in development mode with hot reload |
+| `npm test` | Run tests |
+| `npm run test:watch` | Run tests in watch mode |
 | `docker-compose up -d` | Start local Redis container |

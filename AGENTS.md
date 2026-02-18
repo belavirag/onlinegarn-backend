@@ -14,6 +14,7 @@ This document provides guidance for AI agents working on this project.
 - **Language**: TypeScript (strict mode)
 - **Framework**: Express.js
 - **Package Manager**: npm
+- **Testing**: Vitest + Supertest + MSW
 
 ## Project Structure
 
@@ -22,10 +23,14 @@ This document provides guidance for AI agents working on this project.
 │   ├── index.ts          # Application entry point
 │   ├── routes/           # Route handlers (one file per route)
 │   │   └── health.ts     # GET / route
-│   └── services/         # Services (Redis, etc.)
-│       └── redis.ts      # Redis client
+│   ├── services/         # Services (Redis, etc.)
+│   │   └── redis.ts      # Redis client
+│   ├── tests/           # Test files
+│   │   └── health.test.ts
+│   └── mocks/            # MSW mocks for external APIs
 ├── dist/                 # Compiled JavaScript output
 ├── docker-compose.yml    # Local development services
+├── vitest.config.ts      # Vitest configuration
 ├── package.json
 ├── tsconfig.json
 └── AGENTS.md
@@ -39,6 +44,8 @@ This document provides guidance for AI agents working on this project.
 | `npm start` | Run compiled application |
 | `npm run dev` | Run in development mode with hot reload (nodemon + ts-node) |
 | `docker-compose up -d` | Start local development services (Redis) |
+| `npm test` | Run tests |
+| `npm run test:watch` | Run tests in watch mode |
 
 ## Development Workflow
 
@@ -124,6 +131,85 @@ redis.on('connect', () => {
 });
 
 export default redis;
+```
+
+## Testing
+
+All new code must include tests. This project uses Vitest with Supertest for HTTP testing and MSW for mocking external APIs.
+
+### Running Tests
+
+```bash
+npm test          # Run tests once
+npm run test:watch  # Run tests in watch mode
+```
+
+### Writing Tests
+
+Tests go in `src/tests/` and should follow this pattern:
+
+```typescript
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import request from 'supertest';
+import express, { Application } from 'express';
+import healthRoutes from '../routes/health';
+
+vi.mock('../services/redis', () => ({
+  default: {
+    connect: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn(),
+  },
+}));
+
+describe('Health Routes', () => {
+  let app: Application;
+
+  beforeAll(async () => {
+    app = express();
+    app.use('/', healthRoutes);
+  });
+
+  it('should return OK status', async () => {
+    const response = await request(app).get('/').expect(200);
+    expect(response.text).toBe('OK');
+  });
+});
+```
+
+### Mocking Services
+
+Always mock external services (Redis, databases, etc.) using `vi.mock`:
+
+```typescript
+vi.mock('../services/redis', () => ({
+  default: {
+    connect: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn(),
+  },
+}));
+```
+
+### Using MSW for External APIs
+
+For mocking external HTTP APIs, use MSW handlers in `src/mocks/handlers.ts`:
+
+```typescript
+import { http, HttpResponse } from 'msw';
+
+export const handlers = [
+  http.get('https://api.example.com/health', () => {
+    return HttpResponse.json({ status: 'OK' });
+  }),
+];
+```
+
+Then use the server in tests:
+```typescript
+import { server } from '../mocks/server';
+
+beforeAll(() => server.listen());
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
 ```
 
 ## TypeScript Configuration
