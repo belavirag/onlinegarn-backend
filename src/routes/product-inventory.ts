@@ -51,9 +51,7 @@ interface GraphQLProduct {
 }
 
 interface GraphQLResponse {
-  data?: {
-    product?: GraphQLProduct;
-  };
+  product?: GraphQLProduct;
 }
 
 // Simplified types for API response
@@ -121,14 +119,11 @@ export async function fetchProductInventory(productId: string): Promise<ProductI
   session.accessToken = shopify.config.adminApiAccessToken;
 
   const client = new shopify.clients.Graphql({ session });
-  const response = await client.query<GraphQLResponse>({
-    data: {
-      query: PRODUCT_AVAILABLE_INVENTORY_QUERY,
-      variables: { productId },
-    },
+  const response = await client.request<GraphQLResponse>(PRODUCT_AVAILABLE_INVENTORY_QUERY, {
+    variables: { productId },
   });
 
-  const product = response.body?.data?.product;
+  const product = response.data?.product;
 
   if (!product) {
     throw new Error('Product not found');
