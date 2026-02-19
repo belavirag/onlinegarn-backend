@@ -64,12 +64,15 @@ describe('Products Routes', () => {
                     currencyCode: 'SEK',
                   },
                 },
-                images: {
+                media: {
                   edges: [
                     {
                       node: {
-                        url: 'https://example.com/image.jpg',
-                        altText: 'Test image',
+                        __typename: 'MediaImage',
+                        image: {
+                          url: 'https://example.com/image.jpg',
+                          altText: 'Test image',
+                        },
                       },
                     },
                   ],
@@ -81,7 +84,9 @@ describe('Products Routes', () => {
                         id: 'gid://shopify/ProductVariant/456',
                         title: 'Default',
                         price: '10.0',
-                        image: null,
+                        media: {
+                          edges: [],
+                        },
                         inventoryQuantity: 5,
                         selectedOptions: [
                           { name: 'Title', value: 'Default' },
@@ -104,7 +109,10 @@ describe('Products Routes', () => {
     expect(response.body.products[0].id).toBe('gid://shopify/Product/123');
     expect(response.body.products[0].title).toBe('Test Product');
     expect(response.body.products[0].minPrice.amount).toBe('10.0');
+    expect(response.body.products[0].images).toHaveLength(1);
+    expect(response.body.products[0].images[0].url).toBe('https://example.com/image.jpg');
     expect(response.body.products[0].variants).toHaveLength(1);
+    expect(response.body.products[0].variants[0].image).toBeNull();
     expect(response.body.pageInfo.hasNextPage).toBe(false);
   });
 

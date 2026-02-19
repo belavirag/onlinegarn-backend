@@ -38,7 +38,7 @@ export async function initShopify(): Promise<void> {
   adminAccessToken = (parsed as { access_token: string }).access_token;
 
   const apiVersion: ApiVersion =
-    (process.env.SHOPIFY_API_VERSION as ApiVersion) || ApiVersion.January25;
+    (process.env.SHOPIFY_API_VERSION as ApiVersion) || ApiVersion.April25;
 
   const apiKey = getRequiredEnv('SHOPIFY_API_KEY');
   const apiSecretKey = getRequiredEnv('SHOPIFY_API_SECRET');

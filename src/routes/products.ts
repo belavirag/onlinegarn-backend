@@ -9,8 +9,18 @@ interface GraphQLImage {
   altText: string | null;
 }
 
-interface GraphQLImageEdge {
-  node: GraphQLImage;
+interface GraphQLMediaImage {
+  __typename: 'MediaImage';
+  image: GraphQLImage;
+}
+
+interface GraphQLMediaNode {
+  __typename: string;
+  image?: GraphQLImage;
+}
+
+interface GraphQLMediaEdge {
+  node: GraphQLMediaNode;
 }
 
 interface GraphQLMoney {
@@ -27,7 +37,9 @@ interface GraphQLVariant {
   id: string;
   title: string;
   price: string;
-  image: GraphQLImage | null;
+  media: {
+    edges: GraphQLMediaEdge[];
+  };
   inventoryQuantity: number;
   selectedOptions: GraphQLSelectedOption[];
 }
@@ -50,8 +62,8 @@ interface GraphQLProduct {
   priceRangeV2: {
     minVariantPrice: GraphQLMoney;
   };
-  images: {
-    edges: GraphQLImageEdge[];
+  media: {
+    edges: GraphQLMediaEdge[];
   };
   variants: {
     edges: GraphQLVariantEdge[];
@@ -127,11 +139,16 @@ const ADMIN_PRODUCTS_QUERY = `
               currencyCode
             }
           }
-          images(first: 5) {
+          media(first: 5) {
             edges {
               node {
-                url
-                altText
+                __typename
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                  }
+                }
               }
             }
           }
@@ -141,9 +158,18 @@ const ADMIN_PRODUCTS_QUERY = `
                 id
                 title
                 price
-                image {
-                  url
-                  altText
+                media(first: 1) {
+                  edges {
+                    node {
+                      __typename
+                      ... on MediaImage {
+                        image {
+                          url
+                          altText
+                        }
+                      }
+                    }
+                  }
                 }
                 inventoryQuantity
                 selectedOptions {
@@ -163,6 +189,15 @@ const ADMIN_PRODUCTS_QUERY = `
   }
 ` as const;
 
+function extractImagesFromMedia(edges: GraphQLMediaEdge[]): ProductImage[] {
+  return edges
+    .filter((edge: GraphQLMediaEdge): edge is { node: GraphQLMediaImage } => edge.node.__typename === 'MediaImage')
+    .map((edge: { node: GraphQLMediaImage }) => ({
+      url: edge.node.image.url,
+      altText: edge.node.image.altText,
+    }));
+}
+
 export async function fetchProducts(first: number, after?: string): Promise<ProductsListResponse> {
   const client = createGraphqlClient();
   const response = await client.request<GraphQLProductsResponse>(ADMIN_PRODUCTS_QUERY, {
@@ -176,27 +211,31 @@ export async function fetchProducts(first: number, after?: string): Promise<Prod
   }
 
   return {
-    products: productsData.edges.map((edge: GraphQLProductEdge) => ({
-      id: edge.node.id,
-      title: edge.node.title,
-      description: edge.node.description,
-      descriptionHtml: edge.node.descriptionHtml,
-      handle: edge.node.handle,
-      minPrice: edge.node.priceRangeV2.minVariantPrice,
-      images: edge.node.images.edges.map((imgEdge: GraphQLImageEdge) => ({
-        url: imgEdge.node.url,
-        altText: imgEdge.node.altText,
-      })),
-      variants: edge.node.variants.edges.map((varEdge: GraphQLVariantEdge) => ({
-        id: varEdge.node.id,
-        title: varEdge.node.title,
-        price: varEdge.node.price,
-        image: varEdge.node.image,
-        inventoryQuantity: varEdge.node.inventoryQuantity,
-        selectedOptions: varEdge.node.selectedOptions,
-      })),
-      options: edge.node.options,
-    })),
+    products: productsData.edges.map((edge: GraphQLProductEdge) => {
+      const variantImages = extractImagesFromMedia(edge.node.media.edges);
+
+      return {
+        id: edge.node.id,
+        title: edge.node.title,
+        description: edge.node.description,
+        descriptionHtml: edge.node.descriptionHtml,
+        handle: edge.node.handle,
+        minPrice: edge.node.priceRangeV2.minVariantPrice,
+        images: variantImages,
+        variants: edge.node.variants.edges.map((varEdge: GraphQLVariantEdge) => {
+          const variantImage = extractImagesFromMedia(varEdge.node.media.edges);
+          return {
+            id: varEdge.node.id,
+            title: varEdge.node.title,
+            price: varEdge.node.price,
+            image: variantImage.length > 0 ? variantImage[0] : null,
+            inventoryQuantity: varEdge.node.inventoryQuantity,
+            selectedOptions: varEdge.node.selectedOptions,
+          };
+        }),
+        options: edge.node.options,
+      };
+    }),
     pageInfo: productsData.pageInfo,
   };
 }
