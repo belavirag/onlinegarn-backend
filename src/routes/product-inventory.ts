@@ -138,7 +138,8 @@ export async function fetchProductInventory(productId: string): Promise<ProductI
 router.get('/products/:productId/inventory', async (req: Request<{ productId: string }>, res: Response): Promise<void> => {
   try {
     const { productId } = req.params;
-    const result = await fetchProductInventory(productId);
+    const gid = productId.startsWith('gid://') ? productId : `gid://shopify/Product/${productId}`;
+    const result = await fetchProductInventory(gid);
     res.status(200).json(result);
   } catch (error) {
     console.error('Error fetching product inventory:', error);
