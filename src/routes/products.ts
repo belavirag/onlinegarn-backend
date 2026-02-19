@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getShopify, getAdminAccessToken } from '../services/shopify';
+import { createGraphqlClient } from '../services/shopify';
 
 const router = Router();
 
@@ -164,15 +164,7 @@ const ADMIN_PRODUCTS_QUERY = `
 ` as const;
 
 export async function fetchProducts(first: number, after?: string): Promise<ProductsListResponse> {
-  const shopify = getShopify();
-  const accessToken = getAdminAccessToken();
-
-  const session = shopify.session.customAppSession(
-    process.env.SHOPIFY_SHOP_DOMAIN || 'unknown.myshopify.com'
-  );
-  session.accessToken = accessToken;
-
-  const client = new shopify.clients.Graphql({ session });
+  const client = createGraphqlClient();
   const response = await client.request<GraphQLProductsResponse>(ADMIN_PRODUCTS_QUERY, {
     variables: { first, after },
   });
@@ -184,18 +176,18 @@ export async function fetchProducts(first: number, after?: string): Promise<Prod
   }
 
   return {
-    products: productsData.edges.map((edge) => ({
+    products: productsData.edges.map((edge: GraphQLProductEdge) => ({
       id: edge.node.id,
       title: edge.node.title,
       description: edge.node.description,
       descriptionHtml: edge.node.descriptionHtml,
       handle: edge.node.handle,
       minPrice: edge.node.priceRangeV2.minVariantPrice,
-      images: edge.node.images.edges.map((imgEdge) => ({
+      images: edge.node.images.edges.map((imgEdge: GraphQLImageEdge) => ({
         url: imgEdge.node.url,
         altText: imgEdge.node.altText,
       })),
-      variants: edge.node.variants.edges.map((varEdge) => ({
+      variants: edge.node.variants.edges.map((varEdge: GraphQLVariantEdge) => ({
         id: varEdge.node.id,
         title: varEdge.node.title,
         price: varEdge.node.price,

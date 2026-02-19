@@ -18,16 +18,8 @@ vi.mock('../services/shopify', () => {
   }
 
   return {
-    getShopify: vi.fn(() => ({
-      session: {
-        customAppSession: vi.fn(() => ({
-          accessToken: null,
-        })),
-      },
-      clients: {
-        Graphql: MockGraphqlClient,
-      },
-    })),
+    createGraphqlClient: vi.fn(() => new MockGraphqlClient()),
+    getShopify: vi.fn(),
     getAdminAccessToken: vi.fn(() => 'test_token'),
   };
 });

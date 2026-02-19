@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { getShopify, getAdminAccessToken } from '../services/shopify';
+import { createGraphqlClient } from '../services/shopify';
+import { NotFoundError, AppError } from '../errors';
 
 const router = Router();
 
@@ -108,16 +109,7 @@ const PRODUCT_AVAILABLE_INVENTORY_QUERY = `
 ` as const;
 
 export async function fetchProductInventory(productId: string): Promise<ProductInventory> {
-  const shopify = getShopify();
-  const accessToken = getAdminAccessToken();
-  
-  // Create session with the admin access token
-  const session = shopify.session.customAppSession(
-    process.env.SHOPIFY_SHOP_DOMAIN || 'unknown.myshopify.com'
-  );
-  session.accessToken = accessToken;
-
-  const client = new shopify.clients.Graphql({ session });
+  const client = createGraphqlClient();
   const response = await client.request<GraphQLResponse>(PRODUCT_AVAILABLE_INVENTORY_QUERY, {
     variables: { productId },
   });
@@ -125,39 +117,33 @@ export async function fetchProductInventory(productId: string): Promise<ProductI
   const product = response.data?.product;
 
   if (!product) {
-    throw new Error('Product not found');
+    throw new NotFoundError('Product not found');
   }
 
   return {
     id: product.id,
     title: product.title,
-    variants: product.variants.edges.map((variantEdge) => ({
+    variants: product.variants.edges.map((variantEdge: GraphQLVariantEdge) => ({
       id: variantEdge.node.id,
       title: variantEdge.node.title,
-      inventoryLevels: variantEdge.node.inventoryItem?.inventoryLevels.edges.map((levelEdge) => ({
+      inventoryLevels: variantEdge.node.inventoryItem?.inventoryLevels.edges.map((levelEdge: GraphQLInventoryLevelEdge) => ({
         id: levelEdge.node.id,
         locationName: levelEdge.node.location?.name || 'Unknown',
-        available: levelEdge.node.quantities?.find(q => q.name === 'available')?.quantity ?? 0,
+        available: levelEdge.node.quantities?.find((q: GraphQLQuantity) => q.name === 'available')?.quantity ?? 0,
       })) || [],
     })),
   };
 }
 
-router.get('/products/:productId/inventory', async (req: Request, res: Response): Promise<void> => {
+router.get('/products/:productId/inventory', async (req: Request<{ productId: string }>, res: Response): Promise<void> => {
   try {
     const { productId } = req.params;
-
-    if (!productId) {
-      res.status(400).json({ error: 'Product ID is required' });
-      return;
-    }
-
-    const result = await fetchProductInventory(productId as string);
+    const result = await fetchProductInventory(productId);
     res.status(200).json(result);
   } catch (error) {
     console.error('Error fetching product inventory:', error);
-    if (error instanceof Error && error.message === 'Product not found') {
-      res.status(404).json({ error: 'Product not found' });
+    if (error instanceof AppError) {
+      res.status(error.statusCode).json({ error: error.message });
       return;
     }
     res.status(500).json({ error: 'Failed to fetch product inventory' });
