@@ -1,61 +1,168 @@
 # Shopify Backend
 
-Node.js/TypeScript REST API built with Express.js.
+Node.js/TypeScript REST API for Shopify store integration. Built with Express.js v5, backed by Redis for session/token storage, and connects to the Shopify Admin GraphQL API for product and inventory data.
 
 ## Tech Stack
 
-- Node.js
-- TypeScript (strict mode)
-- Express.js
-- Redis (via ioredis)
-- Vitest + Supertest + MSW (testing)
+- **Runtime**: Node.js
+- **Language**: TypeScript (strict mode)
+- **Framework**: Express.js v5
+- **Database**: Redis (via ioredis)
+- **External API**: Shopify Admin GraphQL API (`@shopify/shopify-api`)
+- **Testing**: Vitest + Supertest + MSW
+
+## Prerequisites
+
+- Node.js (v20+)
+- Docker (for local Redis)
+- A Shopify app with API credentials
+- A Shopify OAuth access token (stored in Redis)
 
 ## Getting Started
 
-### Prerequisites
+### 1. Install dependencies
 
-- Node.js
-- Docker (for local Redis)
+```bash
+npm install
+```
 
-### Local Development
+### 2. Start Redis
 
-1. Start Redis:
-   ```bash
-   docker-compose up -d
-   ```
+```bash
+docker-compose up -d
+```
 
-2. Run the development server:
-   ```bash
-   npm run dev
-   ```
+### 3. Set environment variables
 
-The server will start on `http://localhost:3000`.
+Create a `.env` file or export the required variables:
 
-### Production Build
+```bash
+export SHOPIFY_API_KEY="your-api-key"
+export SHOPIFY_API_SECRET="your-api-secret"
+export SHOPIFY_APP_URL="https://your-app-url.com"
+export SHOPIFY_SHOP_DOMAIN="your-store.myshopify.com"
+```
+
+### 4. Populate the OAuth token in Redis
+
+The app reads the Shopify admin access token from Redis on startup. You must populate it manually:
+
+```bash
+redis-cli SET oauth '{"access_token":"shpat_your_access_token"}'
+```
+
+### 5. Run the dev server
+
+```bash
+npm run dev
+```
+
+The server starts on `http://localhost:3000`.
+
+## API Endpoints
+
+### `GET /`
+
+Health check endpoint.
+
+**Response**: `200 OK` (plain text)
+
+### `GET /products/:productId/inventory`
+
+Fetch product inventory levels from Shopify.
+
+**Parameters**:
+- `productId` -- Shopify product GID (e.g., `gid://shopify/Product/123456`)
+
+**Response** (`200`):
+```json
+{
+  "id": "gid://shopify/Product/123456",
+  "title": "Product Name",
+  "variants": [
+    {
+      "id": "gid://shopify/ProductVariant/789",
+      "title": "Default Title",
+      "inventoryLevels": [
+        {
+          "id": "gid://shopify/InventoryLevel/...",
+          "locationName": "Warehouse",
+          "available": 10
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Error responses**:
+- `400` -- Missing product ID
+- `404` -- Product not found
+- `500` -- Shopify API error
+
+## Environment Variables
+
+| Variable              | Description                       | Default                   | Required |
+| --------------------- | --------------------------------- | ------------------------- | -------- |
+| `PORT`                | Server port                       | `3000`                    | No       |
+| `REDISHOST`           | Redis host                        | `localhost`               | No       |
+| `REDISPORT`           | Redis port                        | `6379`                    | No       |
+| `REDISPASSWORD`       | Redis password                    | (none)                    | No       |
+| `SHOPIFY_API_KEY`     | Shopify app API key               | --                        | **Yes**  |
+| `SHOPIFY_API_SECRET`  | Shopify app API secret            | --                        | **Yes**  |
+| `SHOPIFY_APP_URL`     | Shopify app URL                   | --                        | **Yes**  |
+| `SHOPIFY_API_VERSION` | Shopify API version               | `2025-01`                 | No       |
+| `SHOPIFY_SHOP_DOMAIN` | Shopify store domain              | `unknown.myshopify.com`   | No       |
+
+## Available Scripts
+
+| Command              | Description                                |
+| -------------------- | ------------------------------------------ |
+| `npm run build`      | Compile TypeScript (`tsc`)                 |
+| `npm start`          | Run compiled app (`node dist/index.js`)    |
+| `npm run dev`        | Dev mode with hot reload (nodemon/ts-node) |
+| `npm test`           | Run tests once (`vitest run`)              |
+| `npm run test:watch` | Run tests in watch mode (`vitest`)         |
+
+## Production Build
 
 ```bash
 npm run build
 npm start
 ```
 
-## Environment Variables
+## Project Structure
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | 3000 |
-| `REDISHOST` | Redis host | localhost |
-| `REDISPORT` | Redis port | 6379 |
-| `REDISPASSWORD` | Redis password | (none) |
+```
+src/
+├── index.ts                    # Entry point, Express app setup, startup sequence
+├── routes/
+│   ├── health.ts               # GET /
+│   └── product-inventory.ts    # GET /products/:productId/inventory
+├── services/
+│   ├── redis.ts                # Redis client (ioredis, lazy connect)
+│   └── shopify.ts              # Shopify API client (singleton, reads OAuth from Redis)
+├── tests/
+│   ├── health.test.ts
+│   └── product-inventory.test.ts
+└── mocks/
+    ├── handlers.ts             # MSW request handlers
+    └── server.ts               # MSW server setup
+```
 
-For Railway deployment, set `REDISHOST`, `REDISPORT`, and `REDISPASSWORD` in your environment variables.
+## Testing
 
-## Available Scripts
+```bash
+npm test            # Run once
+npm run test:watch  # Watch mode
+```
 
-| Command | Description |
-|---------|-------------|
-| `npm run build` | Compile TypeScript to JavaScript |
-| `npm start` | Run compiled application |
-| `npm run dev` | Run in development mode with hot reload |
-| `npm test` | Run tests |
-| `npm run test:watch` | Run tests in watch mode |
-| `docker-compose up -d` | Start local Redis container |
+Tests use Vitest with Supertest for HTTP assertions. All external services (Redis, Shopify) are mocked. Each test file creates its own isolated Express app instance.
+
+## CI
+
+GitHub Actions runs `npm test` and `npm run build` on every push and pull request to `main`. See `.github/workflows/test.yml`.
+
+## Deployment
+
+For deployment (e.g., Railway), configure the Redis and Shopify environment variables listed above. Ensure the OAuth token is populated in Redis before the app starts.
