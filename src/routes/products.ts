@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { createGraphqlClient } from '../services/shopify';
+import { buildCacheKey, getCached } from '../services/cache';
 
 const router = Router();
 
@@ -245,7 +246,8 @@ router.get('/products', async (req: Request, res: Response): Promise<void> => {
     const first = Math.min(Math.max(parseInt(req.query.first as string) || 12, 1), 50);
     const after = req.query.after as string | undefined;
 
-    const result = await fetchProducts(first, after);
+    const cacheKey = buildCacheKey('products', { first, after });
+    const result = await getCached(cacheKey, () => fetchProducts(first, after));
     res.status(200).json(result);
   } catch (error) {
     console.error('Error fetching products:', error);

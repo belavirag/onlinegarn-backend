@@ -1,16 +1,24 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { Application } from 'express';
+
+const { mockRedisGet, mockRedisSet } = vi.hoisted(() => ({
+  mockRedisGet: vi.fn().mockResolvedValue(null),
+  mockRedisSet: vi.fn().mockResolvedValue('OK'),
+}));
 
 vi.mock('../services/redis', () => ({
   default: {
     connect: vi.fn().mockResolvedValue(undefined),
     on: vi.fn(),
-    get: vi.fn(),
+    get: mockRedisGet,
+    set: mockRedisSet,
   },
 }));
 
-const mockRequest = vi.fn();
+const { mockRequest } = vi.hoisted(() => ({
+  mockRequest: vi.fn(),
+}));
 
 vi.mock('../services/shopify', () => {
   class MockGraphqlClient {
@@ -35,6 +43,13 @@ describe('Products Routes', () => {
   beforeAll(() => {
     app = express();
     app.use('/', productsRoutes);
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRedisGet.mockResolvedValue(null);
+    mockRedisSet.mockResolvedValue('OK');
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -181,5 +196,38 @@ describe('Products Routes', () => {
 
     const response = await request(app).get('/products').expect(500);
     expect(response.body.error).toBe('Failed to fetch products');
+  });
+
+  it('should return cached data without calling Shopify', async () => {
+    const cachedData = {
+      products: [{ id: 'gid://shopify/Product/cached', title: 'Cached Product' }],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    };
+    mockRedisGet.mockResolvedValueOnce(JSON.stringify(cachedData));
+
+    const response = await request(app).get('/products').expect(200);
+
+    expect(response.body).toEqual(cachedData);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('should cache the response after a fresh fetch', async () => {
+    mockRequest.mockResolvedValueOnce({
+      data: {
+        products: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          edges: [],
+        },
+      },
+    });
+
+    await request(app).get('/products').expect(200);
+
+    expect(mockRedisSet).toHaveBeenCalledWith(
+      expect.stringContaining('cache:products'),
+      expect.any(String),
+      'EX',
+      600,
+    );
   });
 });

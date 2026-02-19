@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { createGraphqlClient } from '../services/shopify';
 import { NotFoundError, AppError } from '../errors';
+import { buildCacheKey, getCached } from '../services/cache';
 
 const router = Router();
 
@@ -139,7 +140,8 @@ router.get('/products/:productId/inventory', async (req: Request<{ productId: st
   try {
     const { productId } = req.params;
     const gid = productId.startsWith('gid://') ? productId : `gid://shopify/Product/${productId}`;
-    const result = await fetchProductInventory(gid);
+    const cacheKey = buildCacheKey('product-inventory', { productId: gid });
+    const result = await getCached(cacheKey, () => fetchProductInventory(gid));
     res.status(200).json(result);
   } catch (error) {
     console.error('Error fetching product inventory:', error);

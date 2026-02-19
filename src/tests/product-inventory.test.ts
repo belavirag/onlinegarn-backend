@@ -1,16 +1,24 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { Application } from 'express';
+
+const { mockRedisGet, mockRedisSet } = vi.hoisted(() => ({
+  mockRedisGet: vi.fn().mockResolvedValue(null),
+  mockRedisSet: vi.fn().mockResolvedValue('OK'),
+}));
 
 vi.mock('../services/redis', () => ({
   default: {
     connect: vi.fn().mockResolvedValue(undefined),
     on: vi.fn(),
-    get: vi.fn(),
+    get: mockRedisGet,
+    set: mockRedisSet,
   },
 }));
 
-const mockRequest = vi.fn();
+const { mockRequest } = vi.hoisted(() => ({
+  mockRequest: vi.fn(),
+}));
 
 vi.mock('../services/shopify', () => {
   class MockGraphqlClient {
@@ -36,6 +44,13 @@ describe('Product Inventory Routes', () => {
   beforeAll(async () => {
     app = express();
     app.use('/', productInventoryRoutes);
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRedisGet.mockResolvedValue(null);
+    mockRedisSet.mockResolvedValue('OK');
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -119,5 +134,42 @@ describe('Product Inventory Routes', () => {
 
   it('should return 404 when productId is empty (Express 5 behavior)', async () => {
     await request(app).get('/products//inventory').expect(404);
+  });
+
+  it('should return cached data without calling Shopify', async () => {
+    const cachedData = {
+      id: 'gid://shopify/Product/123',
+      title: 'Cached Product',
+      variants: [],
+    };
+    mockRedisGet.mockResolvedValueOnce(JSON.stringify(cachedData));
+
+    const response = await request(app)
+      .get('/products/123/inventory')
+      .expect(200);
+
+    expect(response.body).toEqual(cachedData);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('should cache the response after a fresh fetch', async () => {
+    mockRequest.mockResolvedValueOnce({
+      data: {
+        product: {
+          id: 'gid://shopify/Product/123',
+          title: 'Test Product',
+          variants: { edges: [] },
+        },
+      },
+    });
+
+    await request(app).get('/products/123/inventory').expect(200);
+
+    expect(mockRedisSet).toHaveBeenCalledWith(
+      expect.stringContaining('cache:product-inventory'),
+      expect.any(String),
+      'EX',
+      600,
+    );
   });
 });
