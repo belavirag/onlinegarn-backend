@@ -21,15 +21,18 @@ Guidance for AI agents working on this codebase.
 ├── public/
 │   └── mockServiceWorker.js        # MSW browser worker (auto-generated, do not edit)
 ├── src/
-│   ├── index.ts                    # App entry point: creates Express app, connects Redis, inits Shopify
+│   ├── index.ts                    # App entry point: creates Express app, inits services, starts server
+│   ├── errors.ts                   # Custom error classes (AppError, NotFoundError)
 │   ├── routes/
 │   │   ├── health.ts               # GET / -> 200 "OK"
+│   │   ├── products.ts             # GET /products -> paginated product list from Shopify GraphQL
 │   │   └── product-inventory.ts    # GET /products/:productId/inventory -> Shopify GraphQL
 │   ├── services/
 │   │   ├── redis.ts                # ioredis client (lazy connect, env-configured)
-│   │   └── shopify.ts              # Shopify API client (reads OAuth token from Redis)
+│   │   └── shopify.ts              # Shopify API client (reads OAuth token from Redis, shared GraphQL client factory)
 │   ├── tests/
 │   │   ├── health.test.ts
+│   │   ├── products.test.ts
 │   │   └── product-inventory.test.ts
 │   └── mocks/
 │       ├── handlers.ts             # MSW request handlers (placeholder)
@@ -61,19 +64,23 @@ Guidance for AI agents working on this codebase.
 
 ## Environment Variables
 
-| Variable              | Used In                          | Default                    | Required |
-| --------------------- | -------------------------------- | -------------------------- | -------- |
-| `PORT`                | `src/index.ts`                   | `3000`                     | No       |
-| `REDISHOST`           | `src/services/redis.ts`          | `localhost`                | No       |
-| `REDISPORT`           | `src/services/redis.ts`          | `6379`                     | No       |
-| `REDISPASSWORD`       | `src/services/redis.ts`          | `undefined`                | No       |
-| `SHOPIFY_API_KEY`     | `src/services/shopify.ts`        | None (crashes if missing)  | **Yes**  |
-| `SHOPIFY_API_SECRET`  | `src/services/shopify.ts`        | None (crashes if missing)  | **Yes**  |
-| `SHOPIFY_APP_URL`     | `src/services/shopify.ts`        | None (crashes if missing)  | **Yes**  |
-| `SHOPIFY_API_VERSION` | `src/services/shopify.ts`        | `2025-01`                  | No       |
-| `SHOPIFY_SHOP_DOMAIN` | `src/routes/product-inventory.ts`| `unknown.myshopify.com`    | No       |
+| Variable              | Used In                    | Default                    | Required |
+| --------------------- | -------------------------- | -------------------------- | -------- |
+| `PORT`                | `src/index.ts`             | `3000`                     | No       |
+| `REDISHOST`           | `src/services/redis.ts`    | `localhost`                | No       |
+| `REDISPORT`           | `src/services/redis.ts`    | `6379`                     | No       |
+| `REDISPASSWORD`       | `src/services/redis.ts`    | `undefined`                | No       |
+| `SHOPIFY_API_KEY`     | `src/services/shopify.ts`  | None (validated at startup)| **Yes**  |
+| `SHOPIFY_API_SECRET`  | `src/services/shopify.ts`  | None (validated at startup)| **Yes**  |
+| `SHOPIFY_APP_URL`     | `src/services/shopify.ts`  | None (validated at startup)| **Yes**  |
+| `SHOPIFY_API_VERSION` | `src/services/shopify.ts`  | `2025-01`                  | No       |
+| `SHOPIFY_SHOP_DOMAIN` | `src/services/shopify.ts`  | `unknown.myshopify.com`    | No       |
 
-Additionally, an OAuth access token must be stored in Redis under key `"oauth"` as JSON: `{"access_token": "..."}`. This is read at startup by `initShopify()`.
+Required env vars (`SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_APP_URL`) are validated at startup with clear error messages via `getRequiredEnv()`. The process exits with code 1 if any are missing.
+
+Additionally, an OAuth access token must be stored in Redis under key `"oauth"` as JSON: `{"access_token": "..."}`. This is read at startup by `initShopify()`, which validates the JSON structure.
+
+**Note**: There is no `dotenv` package installed. Environment variables must be exported in the shell (e.g., `export SHOPIFY_API_KEY=...`).
 
 ## Architecture & Patterns
 
@@ -88,46 +95,66 @@ Additionally, an OAuth access token must be stored in Redis under key `"oauth"` 
 
 - Services live in `src/services/` as singletons.
 - **Redis** (`redis.ts`): exports a default `ioredis` instance with `lazyConnect: true`. Connected explicitly on startup.
-- **Shopify** (`shopify.ts`): lazy-initialized singleton pattern. Must call `initShopify()` before using `getShopify()` or `getAdminAccessToken()`. Reads the OAuth token from Redis.
-
-### Startup Sequence (src/index.ts)
-
-1. Create Express app, register routes
-2. Start HTTP server on `PORT`
-3. `await redis.connect()`
-4. `await initShopify()` (reads OAuth from Redis, creates Shopify API client)
+- **Shopify** (`shopify.ts`): lazy-initialized singleton pattern. Must call `initShopify()` before using `getShopify()`, `getAdminAccessToken()`, or `createGraphqlClient()`. Reads the OAuth token from Redis.
+  - `createGraphqlClient()`: shared factory that creates a Shopify GraphQL client with the admin access token and session. Used by all route handlers instead of duplicating session/client creation logic.
 
 ### Error Handling
 
-- Route handlers use `try/catch` blocks.
-- Differentiated HTTP status codes based on error messages (e.g., "Product not found" -> 404).
+- **Custom error classes** (`src/errors.ts`): `AppError` (base, carries `statusCode`) and `NotFoundError` (extends `AppError`, 404).
+- Route handlers use `try/catch` blocks and check `instanceof AppError` for structured error responses.
+- A **global error handler middleware** in `src/index.ts` catches any unhandled errors and returns JSON (`{ error: "..." }`) instead of Express's default HTML error page.
 - Generic errors return 500.
 - `console.error` for server-side logging.
 - Express 5 automatically catches rejected promises in async handlers.
 
-### No middleware currently configured
+### Middleware
 
-There is no `express.json()`, CORS, auth, or logging middleware. All current routes are GET endpoints. Add body-parsing middleware when POST/PUT/PATCH routes are introduced.
+- **CORS**: `cors()` middleware is enabled globally (allows all origins by default).
+- **Global error handler**: registered after all routes, returns JSON error responses.
+- There is no `express.json()`, auth, or logging middleware. All current routes are GET endpoints. Add body-parsing middleware when POST/PUT/PATCH routes are introduced.
+
+### Startup Sequence (src/index.ts)
+
+1. Create Express app, register CORS middleware and routes
+2. Register global error handler
+3. `await redis.connect()` -- fails fast with `process.exit(1)` on error
+4. `await initShopify()` -- validates env vars, parses/validates OAuth from Redis, creates Shopify API client; fails fast with `process.exit(1)` on error
+5. Start HTTP server on `PORT` (only after services are initialized)
 
 ## Coding Conventions
 
 - **TypeScript strict mode** -- all strict checks enabled.
-- **Explicit types** on function parameters (e.g., `req: Request, res: Response`).
+- **Explicit types** on function parameters (e.g., `req: Request, res: Response`), return types, and `.map()` callbacks.
 - **ES6+ syntax**: `const`/`let`, arrow functions, `async`/`await`.
 - **Interfaces** for all API response shapes (both raw GraphQL and simplified).
 - **`async` route handlers** with `Promise<void>` return type.
 - Define GraphQL query strings as `const` assertions.
+- Use `AppError`/`NotFoundError` for errors with HTTP status codes; never match errors by message strings.
+- Use `createGraphqlClient()` from the shopify service instead of creating sessions/clients inline.
 
 ### Adding a New Route
 
 1. Create `src/routes/<name>.ts`:
    ```typescript
    import { Router, Request, Response } from 'express';
+   import { createGraphqlClient } from '../services/shopify';
+   import { AppError } from '../errors';
 
    const router = Router();
 
    router.get('/your-path', async (_req: Request, res: Response): Promise<void> => {
-     res.status(200).json({ ok: true });
+     try {
+       const client = createGraphqlClient();
+       // ... use client to query Shopify
+       res.status(200).json({ ok: true });
+     } catch (error) {
+       console.error('Error:', error);
+       if (error instanceof AppError) {
+         res.status(error.statusCode).json({ error: error.message });
+         return;
+       }
+       res.status(500).json({ error: 'Internal server error' });
+     }
    });
 
    export default router;
@@ -144,7 +171,8 @@ There is no `express.json()`, CORS, auth, or logging middleware. All current rou
 1. Create `src/services/<name>.ts`.
 2. Export a default instance or init/getter functions.
 3. Use environment variables for configuration with sensible defaults.
-4. Initialize in `src/index.ts` startup sequence.
+4. Validate required env vars with clear error messages (see `getRequiredEnv()` pattern in `shopify.ts`).
+5. Initialize in `src/index.ts` startup sequence (inside the `start()` function's try/catch).
 
 ## Testing
 
@@ -157,11 +185,12 @@ There is no `express.json()`, CORS, auth, or logging middleware. All current rou
 - Use Supertest for HTTP-level assertions.
 - Use `beforeAll`/`afterAll` lifecycle hooks for setup and teardown.
 - Suppress expected `console.error` output with `vi.spyOn(console, 'error')`.
+- Tests must cover happy-path, error-path, and edge cases.
 
 ### Test File Template
 
 ```typescript
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import express, { Application } from 'express';
 
@@ -170,20 +199,47 @@ vi.mock('../services/redis', () => ({
   default: {
     connect: vi.fn().mockResolvedValue(undefined),
     on: vi.fn(),
+    get: vi.fn(),
   },
 }));
+
+const mockRequest = vi.fn();
+
+vi.mock('../services/shopify', () => {
+  class MockGraphqlClient {
+    request = mockRequest;
+  }
+
+  return {
+    createGraphqlClient: vi.fn(() => new MockGraphqlClient()),
+    getShopify: vi.fn(),
+    getAdminAccessToken: vi.fn(() => 'test_token'),
+  };
+});
+
+vi.mock('@shopify/shopify-api/adapters/node', () => ({}));
 
 import myRoutes from '../routes/my-route';
 
 describe('My Route', () => {
   let app: Application;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeAll(() => {
     app = express();
     app.use('/', myRoutes);
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it('should return expected response', async () => {
+    mockRequest.mockResolvedValueOnce({
+      data: { /* mock GraphQL response */ },
+    });
+
     const response = await request(app).get('/my-path').expect(200);
     expect(response.body).toEqual({ ok: true });
   });
@@ -220,7 +276,8 @@ CI runs `npm test` and `npm run build` on every push/PR to `main`.
 - **Strict**: `true`
 - **Output**: `./dist`
 - **Root**: `./src`
-- `esModuleInterop: true`, `resolveJsonModule: true`, `declaration: true`, `skipLibCheck: true`
+- `esModuleInterop: true`, `resolveJsonModule: true`, `skipLibCheck: true`
+- Test and mock files (`src/tests/`, `src/mocks/`) are excluded from the build output
 
 ## Vitest Configuration
 
@@ -232,21 +289,22 @@ CI runs `npm test` and `npm run build` on every push/PR to `main`.
 
 ## Key Dependencies
 
-| Package                | Version | Notes                                    |
-| ---------------------- | ------- | ---------------------------------------- |
-| `express`              | ^5.2.1  | Express 5 (not 4) -- async error support |
-| `@shopify/shopify-api` | ^12.3.0 | Shopify Admin API client                 |
-| `ioredis`              | ^5.9.3  | Redis client                             |
-| `vitest`               | ^4.0.18 | Test runner                              |
-| `msw`                  | ^2.12.10| Mock Service Worker                      |
-| `supertest`            | ^7.2.2  | HTTP testing                             |
-| `typescript`           | ^5.9.3  | Compiler                                 |
+| Package                | Version  | Notes                                    |
+| ---------------------- | -------- | ---------------------------------------- |
+| `express`              | ^5.2.1   | Express 5 (not 4) -- async error support |
+| `@shopify/shopify-api` | ^12.3.0  | Shopify Admin API client                 |
+| `ioredis`              | ^5.9.3   | Redis client (ships its own types)       |
+| `cors`                 | ^2.8.6   | CORS middleware                          |
+| `vitest`               | ^4.0.18  | Test runner                              |
+| `msw`                  | ^2.12.10 | Mock Service Worker                      |
+| `supertest`            | ^7.2.2   | HTTP testing                             |
+| `typescript`           | ^5.9.3   | Compiler                                 |
 
 ## Known Issues / Gotchas
 
 1. **Express 5**: This is Express 5, not 4. Route parameter behavior differs (e.g., `/products/:productId/inventory` won't match `/products//inventory` -- it returns 404).
-2. **Required env vars use `!` assertion**: `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, and `SHOPIFY_APP_URL` use TypeScript non-null assertions without runtime validation. Missing values cause confusing runtime crashes.
-3. **OAuth token not managed by this app**: The Shopify OAuth access token must be pre-populated in Redis key `"oauth"`. There is no OAuth flow in this codebase.
-4. **No Dockerfile**: A `.dockerignore` exists but no `Dockerfile` is present yet.
-5. **MSW browser worker**: `public/mockServiceWorker.js` was auto-generated and is unnecessary for a backend project. Do not delete it (it is referenced in `package.json` msw config).
-6. **Path alias `@`**: Configured in `vitest.config.ts` but not used anywhere in the codebase.
+2. **OAuth token not managed by this app**: The Shopify OAuth access token must be pre-populated in Redis key `"oauth"`. There is no OAuth flow in this codebase.
+3. **No Dockerfile**: A `.dockerignore` exists but no `Dockerfile` is present yet.
+4. **MSW browser worker**: `public/mockServiceWorker.js` was auto-generated and is unnecessary for a backend project. Do not delete it (it is referenced in `package.json` msw config).
+5. **Path alias `@`**: Configured in `vitest.config.ts` but not used anywhere in the codebase.
+6. **No `dotenv`**: There is no `dotenv` package. Environment variables must be set in the shell.

@@ -34,7 +34,7 @@ docker-compose up -d
 
 ### 3. Set environment variables
 
-Create a `.env` file or export the required variables:
+Export the required variables in your shell:
 
 ```bash
 export SHOPIFY_API_KEY="your-api-key"
@@ -42,6 +42,8 @@ export SHOPIFY_API_SECRET="your-api-secret"
 export SHOPIFY_APP_URL="https://your-app-url.com"
 export SHOPIFY_SHOP_DOMAIN="your-store.myshopify.com"
 ```
+
+**Note**: There is no `dotenv` support. Variables must be set in the shell environment.
 
 ### 4. Populate the OAuth token in Redis
 
@@ -66,6 +68,51 @@ The server starts on `http://localhost:3000`.
 Health check endpoint.
 
 **Response**: `200 OK` (plain text)
+
+### `GET /products`
+
+Fetch a paginated list of products from Shopify.
+
+**Query parameters**:
+- `first` (optional) -- Number of products to return (1-50, default: 12)
+- `after` (optional) -- Cursor for pagination (from `pageInfo.endCursor` in a previous response)
+
+**Response** (`200`):
+```json
+{
+  "products": [
+    {
+      "id": "gid://shopify/Product/123456",
+      "title": "Product Name",
+      "description": "Plain text description",
+      "descriptionHtml": "<p>HTML description</p>",
+      "handle": "product-name",
+      "minPrice": { "amount": "10.0", "currencyCode": "SEK" },
+      "images": [
+        { "url": "https://...", "altText": "Image alt" }
+      ],
+      "variants": [
+        {
+          "id": "gid://shopify/ProductVariant/789",
+          "title": "Default",
+          "price": "10.0",
+          "image": null,
+          "inventoryQuantity": 5,
+          "selectedOptions": [{ "name": "Title", "value": "Default" }]
+        }
+      ],
+      "options": [{ "name": "Title", "values": ["Default"] }]
+    }
+  ],
+  "pageInfo": {
+    "hasNextPage": false,
+    "endCursor": null
+  }
+}
+```
+
+**Error responses**:
+- `500` -- Shopify API error
 
 ### `GET /products/:productId/inventory`
 
@@ -96,7 +143,6 @@ Fetch product inventory levels from Shopify.
 ```
 
 **Error responses**:
-- `400` -- Missing product ID
 - `404` -- Product not found
 - `500` -- Shopify API error
 
@@ -113,6 +159,8 @@ Fetch product inventory levels from Shopify.
 | `SHOPIFY_APP_URL`     | Shopify app URL                   | --                        | **Yes**  |
 | `SHOPIFY_API_VERSION` | Shopify API version               | `2025-01`                 | No       |
 | `SHOPIFY_SHOP_DOMAIN` | Shopify store domain              | `unknown.myshopify.com`   | No       |
+
+Required env vars are validated at startup with clear error messages. The process exits with code 1 if any are missing.
 
 ## Available Scripts
 
@@ -136,14 +184,17 @@ npm start
 ```
 src/
 ├── index.ts                    # Entry point, Express app setup, startup sequence
+├── errors.ts                   # Custom error classes (AppError, NotFoundError)
 ├── routes/
 │   ├── health.ts               # GET /
+│   ├── products.ts             # GET /products
 │   └── product-inventory.ts    # GET /products/:productId/inventory
 ├── services/
 │   ├── redis.ts                # Redis client (ioredis, lazy connect)
-│   └── shopify.ts              # Shopify API client (singleton, reads OAuth from Redis)
+│   └── shopify.ts              # Shopify API client (singleton, OAuth from Redis, GraphQL client factory)
 ├── tests/
 │   ├── health.test.ts
+│   ├── products.test.ts
 │   └── product-inventory.test.ts
 └── mocks/
     ├── handlers.ts             # MSW request handlers
