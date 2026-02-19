@@ -28,9 +28,11 @@ Guidance for AI agents working on this codebase.
 │   │   ├── products.ts             # GET /products -> paginated product list from Shopify GraphQL
 │   │   └── product-inventory.ts    # GET /products/:productId/inventory -> Shopify GraphQL
 │   ├── services/
+│   │   ├── cache.ts                # Redis caching utility (buildCacheKey, getCached with 10-min TTL)
 │   │   ├── redis.ts                # ioredis client (lazy connect, env-configured)
 │   │   └── shopify.ts              # Shopify API client (reads OAuth token from Redis, shared GraphQL client factory)
 │   ├── tests/
+│   │   ├── cache.test.ts
 │   │   ├── health.test.ts
 │   │   ├── products.test.ts
 │   │   └── product-inventory.test.ts
@@ -94,6 +96,7 @@ Additionally, an OAuth access token must be stored in Redis under key `"oauth"` 
 ### Services
 
 - Services live in `src/services/` as singletons.
+- **Cache** (`cache.ts`): provides `buildCacheKey(prefix, params)` and `getCached<T>(cacheKey, fetcher)`. All API responses are cached in Redis with a 10-minute TTL. Cache keys are deterministic (params sorted alphabetically, undefined values omitted). Format: `cache:<prefix>:<key=value&...>`.
 - **Redis** (`redis.ts`): exports a default `ioredis` instance with `lazyConnect: true`. Connected explicitly on startup.
 - **Shopify** (`shopify.ts`): lazy-initialized singleton pattern. Must call `initShopify()` before using `getShopify()`, `getAdminAccessToken()`, or `createGraphqlClient()`. Reads the OAuth token from Redis.
   - `createGraphqlClient()`: shared factory that creates a Shopify GraphQL client with the admin access token and session. Used by all route handlers instead of duplicating session/client creation logic.
@@ -138,15 +141,20 @@ Additionally, an OAuth access token must be stored in Redis under key `"oauth"` 
    ```typescript
    import { Router, Request, Response } from 'express';
    import { createGraphqlClient } from '../services/shopify';
+   import { buildCacheKey, getCached } from '../services/cache';
    import { AppError } from '../errors';
 
    const router = Router();
 
-   router.get('/your-path', async (_req: Request, res: Response): Promise<void> => {
+   router.get('/your-path', async (req: Request, res: Response): Promise<void> => {
      try {
        const client = createGraphqlClient();
-       // ... use client to query Shopify
-       res.status(200).json({ ok: true });
+       const cacheKey = buildCacheKey('your-prefix', { /* query params */ });
+       const result = await getCached(cacheKey, async () => {
+         // ... use client to query Shopify
+         return { ok: true };
+       });
+       res.status(200).json(result);
      } catch (error) {
        console.error('Error:', error);
        if (error instanceof AppError) {
@@ -190,20 +198,29 @@ Additionally, an OAuth access token must be stored in Redis under key `"oauth"` 
 ### Test File Template
 
 ```typescript
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import express, { Application } from 'express';
+
+// Use vi.hoisted() for mock variables referenced inside vi.mock() factories
+const { mockRedisGet, mockRedisSet } = vi.hoisted(() => ({
+  mockRedisGet: vi.fn().mockResolvedValue(null),
+  mockRedisSet: vi.fn().mockResolvedValue('OK'),
+}));
 
 // Mock all external services before importing route
 vi.mock('../services/redis', () => ({
   default: {
     connect: vi.fn().mockResolvedValue(undefined),
     on: vi.fn(),
-    get: vi.fn(),
+    get: mockRedisGet,
+    set: mockRedisSet,
   },
 }));
 
-const mockRequest = vi.fn();
+const { mockRequest } = vi.hoisted(() => ({
+  mockRequest: vi.fn(),
+}));
 
 vi.mock('../services/shopify', () => {
   class MockGraphqlClient {
@@ -228,6 +245,13 @@ describe('My Route', () => {
   beforeAll(() => {
     app = express();
     app.use('/', myRoutes);
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRedisGet.mockResolvedValue(null);
+    mockRedisSet.mockResolvedValue('OK');
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 

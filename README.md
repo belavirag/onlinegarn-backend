@@ -1,6 +1,6 @@
 # Shopify Backend
 
-Node.js/TypeScript REST API for Shopify store integration. Built with Express.js v5, backed by Redis for session/token storage, and connects to the Shopify Admin GraphQL API for product and inventory data.
+Node.js/TypeScript REST API for Shopify store integration. Built with Express.js v5, backed by Redis for session/token storage and response caching, and connects to the Shopify Admin GraphQL API for product and inventory data.
 
 ## Tech Stack
 
@@ -71,7 +71,7 @@ Health check endpoint.
 
 ### `GET /products`
 
-Fetch a paginated list of products from Shopify.
+Fetch a paginated list of products from Shopify. Responses are cached in Redis for 10 minutes.
 
 **Query parameters**:
 - `first` (optional) -- Number of products to return (1-50, default: 12)
@@ -116,7 +116,7 @@ Fetch a paginated list of products from Shopify.
 
 ### `GET /products/:productId/inventory`
 
-Fetch product inventory levels from Shopify.
+Fetch product inventory levels from Shopify. Responses are cached in Redis for 10 minutes.
 
 **Parameters**:
 - `productId` -- Shopify product GID (e.g., `gid://shopify/Product/123456`)
@@ -190,9 +190,11 @@ src/
 │   ├── products.ts             # GET /products
 │   └── product-inventory.ts    # GET /products/:productId/inventory
 ├── services/
+│   ├── cache.ts                # Redis caching (buildCacheKey, getCached, 10-min TTL)
 │   ├── redis.ts                # Redis client (ioredis, lazy connect)
 │   └── shopify.ts              # Shopify API client (singleton, OAuth from Redis, GraphQL client factory)
 ├── tests/
+│   ├── cache.test.ts
 │   ├── health.test.ts
 │   ├── products.test.ts
 │   └── product-inventory.test.ts
@@ -209,6 +211,19 @@ npm run test:watch  # Watch mode
 ```
 
 Tests use Vitest with Supertest for HTTP assertions. All external services (Redis, Shopify) are mocked. Each test file creates its own isolated Express app instance.
+
+## Caching
+
+All API responses (except the health check) are cached in Redis with a 10-minute TTL. Cache keys are computed deterministically from the route prefix and request parameters (sorted alphabetically, undefined values omitted).
+
+- **Key format**: `cache:<prefix>:<key=value&...>` (e.g., `cache:products:after=cursor&first=12`)
+- **TTL**: 600 seconds (10 minutes)
+- **Cache miss**: The Shopify API is queried and the response is stored in Redis before returning.
+- **Cache hit**: The cached JSON is returned directly without calling the Shopify API.
+
+The caching logic lives in `src/services/cache.ts` and exposes two functions:
+- `buildCacheKey(prefix, params)` -- builds a deterministic Redis key
+- `getCached<T>(cacheKey, fetcher)` -- returns cached data or calls the fetcher and caches the result
 
 ## CI
 
