@@ -140,7 +140,7 @@ const ADMIN_PRODUCTS_QUERY = `
               currencyCode
             }
           }
-          media(first: 5) {
+          media(first: 50) {
             edges {
               node {
                 __typename
