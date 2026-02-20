@@ -70,6 +70,36 @@ export function getAdminAccessToken(): string {
 }
 
 /**
+ * Re-reads the OAuth access token from Redis and updates the in-memory value.
+ * Call this before making Shopify API requests so that a rotated or updated
+ * token is picked up without restarting the application.
+ */
+export async function refreshAccessToken(): Promise<void> {
+  const oauthData = await redis.get('oauth');
+  if (!oauthData) {
+    throw new Error('OAuth token not found in Redis');
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(oauthData);
+  } catch {
+    throw new Error('Failed to parse OAuth data from Redis: invalid JSON');
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('access_token' in parsed) ||
+    typeof (parsed as Record<string, unknown>).access_token !== 'string'
+  ) {
+    throw new Error('Invalid OAuth data in Redis: missing or invalid "access_token" field');
+  }
+
+  adminAccessToken = (parsed as { access_token: string }).access_token;
+}
+
+/**
  * Creates a Shopify GraphQL client with the admin access token.
  * Extracts the duplicated session/client creation pattern from route handlers.
  */

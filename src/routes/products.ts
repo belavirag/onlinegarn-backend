@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { createGraphqlClient } from '../services/shopify';
+import { createGraphqlClient, refreshAccessToken } from '../services/shopify';
 import { buildCacheKey, getCached } from '../services/cache';
 
 const router = Router();
@@ -200,6 +200,7 @@ function extractImagesFromMedia(edges: GraphQLMediaEdge[]): ProductImage[] {
 }
 
 export async function fetchProducts(first: number, after?: string): Promise<ProductsListResponse> {
+  await refreshAccessToken();
   const client = createGraphqlClient();
   const response = await client.request<GraphQLProductsResponse>(ADMIN_PRODUCTS_QUERY, {
     variables: { first, after },

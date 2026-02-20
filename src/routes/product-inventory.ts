@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { createGraphqlClient } from '../services/shopify';
+import { createGraphqlClient, refreshAccessToken } from '../services/shopify';
 import { NotFoundError, AppError } from '../errors';
 import { buildCacheKey, getCached } from '../services/cache';
 
@@ -110,6 +110,7 @@ const PRODUCT_AVAILABLE_INVENTORY_QUERY = `
 ` as const;
 
 export async function fetchProductInventory(productId: string): Promise<ProductInventory> {
+  await refreshAccessToken();
   const client = createGraphqlClient();
   const response = await client.request<GraphQLResponse>(PRODUCT_AVAILABLE_INVENTORY_QUERY, {
     variables: { productId },
