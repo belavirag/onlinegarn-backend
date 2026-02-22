@@ -1,4 +1,5 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import healthRoutes from './routes/health';
 import productsRoutes from './routes/products';
@@ -8,9 +9,11 @@ import redis from './services/redis';
 import { initShopify } from './services/shopify';
 import { initMeilisearch } from './services/meilisearch';
 import { startProductSyncCron } from './services/product-sync';
+import { attachChatWebSocket } from './services/chat-ws';
 import { AppError } from './errors';
 
 const app: Application = express();
+const server = createServer(app);
 
 app.use(cors());
 
@@ -39,12 +42,13 @@ async function start(): Promise<void> {
     await initShopify();
     await initMeilisearch();
     startProductSyncCron();
+    attachChatWebSocket(server);
   } catch (error) {
     console.error('Failed to initialize services:', error);
     process.exit(1);
   }
 
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
 }
