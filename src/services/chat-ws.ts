@@ -64,6 +64,35 @@ interface ConversationMessage {
 
 const MODEL = "arcee-ai/trinity-mini:free";
 
+/** Maximum number of attempts for an OpenRouter API call (1 original + N-1 retries). */
+const MAX_ATTEMPTS = 3;
+/** Base delay in milliseconds for exponential backoff between retries. */
+const RETRY_BASE_DELAY_MS = 500;
+
+/**
+ * Calls an async function with exponential backoff retry.
+ * Throws the last error if all attempts are exhausted.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts: number = MAX_ATTEMPTS,
+  baseDelayMs: number = RETRY_BASE_DELAY_MS,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
 const SYSTEM_PROMPT = `Du är en shoppingassistent för onlinegarn.se, en svensk garnanaffär på nätet.
 
 ## Ditt uppdrag
@@ -216,16 +245,18 @@ async function handleConnection(ws: WebSocket): Promise<void> {
       // compatible at runtime; the cast is needed because our ReasoningDetail uses
       // a wider `string` type for the discriminant instead of the SDK's narrow literals.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stream = await client.chat.send({
-        chatGenerationParams: {
-          model: MODEL,
-          messages: apiMessages as unknown as Parameters<
-            typeof client.chat.send
-          >[0]["chatGenerationParams"]["messages"],
-          stream: true,
-          reasoning: { effort: "high" },
-        },
-      });
+      const stream = await withRetry(() =>
+        client.chat.send({
+          chatGenerationParams: {
+            model: MODEL,
+            messages: apiMessages as unknown as Parameters<
+              typeof client.chat.send
+            >[0]["chatGenerationParams"]["messages"],
+            stream: true,
+            reasoning: { effort: "high" },
+          },
+        }),
+      );
 
       let assistantContent = "";
       let assistantReasoning: string | null = null;
@@ -241,9 +272,7 @@ async function handleConnection(ws: WebSocket): Promise<void> {
           // a leading space as their first chunk, which ReactMarkdown strips when
           // rendering, causing the text to appear without an expected leading space.
           const chunk =
-            assistantContent === ""
-              ? delta.content.trimStart()
-              : delta.content;
+            assistantContent === "" ? delta.content.trimStart() : delta.content;
           if (chunk) {
             assistantContent += chunk;
             send(ws, { type: "token", content: chunk });

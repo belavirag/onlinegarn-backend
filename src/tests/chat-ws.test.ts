@@ -1,6 +1,15 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
-import { createServer, Server } from 'http';
-import WebSocket from 'ws';
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
+import { createServer, Server } from "http";
+import WebSocket from "ws";
 
 // Hoist mock setup before any vi.mock() calls
 const { mockMeiliGetDocuments, mockChatSend } = vi.hoisted(() => ({
@@ -8,25 +17,35 @@ const { mockMeiliGetDocuments, mockChatSend } = vi.hoisted(() => ({
   mockChatSend: vi.fn(),
 }));
 
-vi.mock('../services/meilisearch', () => ({
+vi.mock("../services/meilisearch", () => ({
   getMeilisearch: vi.fn(() => ({
     index: vi.fn(() => ({
       getDocuments: mockMeiliGetDocuments,
     })),
   })),
-  PRODUCTS_INDEX: 'products',
+  PRODUCTS_INDEX: "products",
 }));
 
-vi.mock('../services/openrouter', () => ({
+vi.mock("../services/openrouter", () => ({
   getOpenRouterClient: vi.fn(async () => ({
     chat: { send: mockChatSend },
   })),
 }));
 
-import { attachChatWebSocket } from '../services/chat-ws';
+import { attachChatWebSocket } from "../services/chat-ws";
 
 // Helper: create an async iterable from an array of chunks (simulates streaming)
-function makeStream(chunks: Array<{ choices?: Array<{ delta: { content?: string; reasoning?: string | null; reasoningDetails?: unknown[] } }> }>): AsyncIterable<typeof chunks[number]> {
+function makeStream(
+  chunks: Array<{
+    choices?: Array<{
+      delta: {
+        content?: string;
+        reasoning?: string | null;
+        reasoningDetails?: unknown[];
+      };
+    }>;
+  }>,
+): AsyncIterable<(typeof chunks)[number]> {
   return {
     [Symbol.asyncIterator]() {
       let i = 0;
@@ -35,7 +54,10 @@ function makeStream(chunks: Array<{ choices?: Array<{ delta: { content?: string;
           if (i < chunks.length) {
             return { value: chunks[i++], done: false };
           }
-          return { value: undefined as unknown as typeof chunks[number], done: true };
+          return {
+            value: undefined as unknown as (typeof chunks)[number],
+            done: true,
+          };
         },
       };
     },
@@ -43,22 +65,24 @@ function makeStream(chunks: Array<{ choices?: Array<{ delta: { content?: string;
 }
 
 // Helper: connect a WS client and collect all messages until 'done' or 'error'
-function collectMessages(ws: WebSocket): Promise<Array<Record<string, unknown>>> {
+function collectMessages(
+  ws: WebSocket,
+): Promise<Array<Record<string, unknown>>> {
   return new Promise((resolve, reject) => {
     const messages: Array<Record<string, unknown>> = [];
-    ws.on('message', (raw) => {
+    ws.on("message", (raw) => {
       const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
       messages.push(msg);
-      if (msg.type === 'done' || msg.type === 'error') {
+      if (msg.type === "done" || msg.type === "error") {
         resolve(messages);
       }
     });
-    ws.on('error', reject);
-    ws.on('close', () => resolve(messages));
+    ws.on("error", reject);
+    ws.on("close", () => resolve(messages));
   });
 }
 
-describe('Chat WebSocket handler', () => {
+describe("Chat WebSocket handler", () => {
   let httpServer: Server;
   let port: number;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -69,11 +93,11 @@ describe('Chat WebSocket handler', () => {
     attachChatWebSocket(httpServer);
 
     await new Promise<void>((resolve) => {
-      httpServer.listen(0, '127.0.0.1', () => resolve());
+      httpServer.listen(0, "127.0.0.1", () => resolve());
     });
 
     const addr = httpServer.address();
-    port = typeof addr === 'object' && addr !== null ? addr.port : 0;
+    port = typeof addr === "object" && addr !== null ? addr.port : 0;
   });
 
   afterAll(async () => {
@@ -85,8 +109,8 @@ describe('Chat WebSocket handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockMeiliGetDocuments.mockResolvedValue({ results: [] });
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -97,16 +121,16 @@ describe('Chat WebSocket handler', () => {
   function connect(): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/chat`);
-      ws.on('open', () => resolve(ws));
-      ws.on('error', reject);
+      ws.on("open", () => resolve(ws));
+      ws.on("error", reject);
     });
   }
 
-  it('should stream tokens and emit done on a valid message', async () => {
+  it("should stream tokens and emit done on a valid message", async () => {
     mockChatSend.mockResolvedValueOnce(
       makeStream([
-        { choices: [{ delta: { content: 'Hej' } }] },
-        { choices: [{ delta: { content: '!' } }] },
+        { choices: [{ delta: { content: "Hej" } }] },
+        { choices: [{ delta: { content: "!" } }] },
         { choices: [{ delta: {} }] }, // final chunk with no content
       ]),
     );
@@ -114,131 +138,184 @@ describe('Chat WebSocket handler', () => {
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send(JSON.stringify({ type: 'message', content: 'Vad har ni för garn?' }));
+    ws.send(
+      JSON.stringify({ type: "message", content: "Vad har ni för garn?" }),
+    );
 
     const messages = await collecting;
     ws.close();
 
-    const tokens = messages.filter((m) => m.type === 'token');
-    const done = messages.find((m) => m.type === 'done');
+    const tokens = messages.filter((m) => m.type === "token");
+    const done = messages.find((m) => m.type === "done");
 
     expect(tokens).toHaveLength(2);
-    expect(tokens[0].content).toBe('Hej');
-    expect(tokens[1].content).toBe('!');
+    expect(tokens[0].content).toBe("Hej");
+    expect(tokens[1].content).toBe("!");
     expect(done).toBeDefined();
   });
 
-  it('should trim leading whitespace from the first token', async () => {
+  it("should trim leading whitespace from the first token", async () => {
     mockChatSend.mockResolvedValueOnce(
       makeStream([
-        { choices: [{ delta: { content: ' Hej' } }] },
-        { choices: [{ delta: { content: '!' } }] },
+        { choices: [{ delta: { content: " Hej" } }] },
+        { choices: [{ delta: { content: "!" } }] },
       ]),
     );
 
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send(JSON.stringify({ type: 'message', content: 'Hej!' }));
+    ws.send(JSON.stringify({ type: "message", content: "Hej!" }));
 
     const messages = await collecting;
     ws.close();
 
-    const tokens = messages.filter((m) => m.type === 'token');
+    const tokens = messages.filter((m) => m.type === "token");
     expect(tokens).toHaveLength(2);
-    expect(tokens[0].content).toBe('Hej'); // leading space stripped
-    expect(tokens[1].content).toBe('!');
+    expect(tokens[0].content).toBe("Hej"); // leading space stripped
+    expect(tokens[1].content).toBe("!");
   });
 
-  it('should not send a token event when first token is only whitespace', async () => {
+  it("should not send a token event when first token is only whitespace", async () => {
     mockChatSend.mockResolvedValueOnce(
       makeStream([
-        { choices: [{ delta: { content: '  ' } }] }, // only whitespace
-        { choices: [{ delta: { content: 'Hej' } }] },
+        { choices: [{ delta: { content: "  " } }] }, // only whitespace
+        { choices: [{ delta: { content: "Hej" } }] },
       ]),
     );
 
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send(JSON.stringify({ type: 'message', content: 'Hej!' }));
+    ws.send(JSON.stringify({ type: "message", content: "Hej!" }));
 
     const messages = await collecting;
     ws.close();
 
-    const tokens = messages.filter((m) => m.type === 'token');
+    const tokens = messages.filter((m) => m.type === "token");
     expect(tokens).toHaveLength(1);
-    expect(tokens[0].content).toBe('Hej');
+    expect(tokens[0].content).toBe("Hej");
   });
 
-  it('should return an error event on invalid JSON', async () => {
+  it("should return an error event on invalid JSON", async () => {
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send('not json at all');
+    ws.send("not json at all");
 
     const messages = await collecting;
     ws.close();
 
     expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe('error');
+    expect(messages[0].type).toBe("error");
     expect(messages[0].message).toMatch(/invalid message format/i);
   });
 
-  it('should return an error event on missing content field', async () => {
+  it("should return an error event on missing content field", async () => {
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send(JSON.stringify({ type: 'message', content: '   ' }));
+    ws.send(JSON.stringify({ type: "message", content: "   " }));
 
     const messages = await collecting;
     ws.close();
 
     expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe('error');
+    expect(messages[0].type).toBe("error");
   });
 
-  it('should return an error event on wrong message type', async () => {
+  it("should return an error event on wrong message type", async () => {
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send(JSON.stringify({ type: 'ping' }));
+    ws.send(JSON.stringify({ type: "ping" }));
 
     const messages = await collecting;
     ws.close();
 
     expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe('error');
+    expect(messages[0].type).toBe("error");
   });
 
-  it('should return an error event when OpenRouter throws', async () => {
-    mockChatSend.mockRejectedValueOnce(new Error('OpenRouter API down'));
+  it("should return an error event when OpenRouter fails all retries", async () => {
+    vi.useFakeTimers();
+
+    // Reject all 3 attempts (MAX_ATTEMPTS = 3)
+    mockChatSend
+      .mockRejectedValueOnce(new Error("OpenRouter API down"))
+      .mockRejectedValueOnce(new Error("OpenRouter API down"))
+      .mockRejectedValueOnce(new Error("OpenRouter API down"));
 
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send(JSON.stringify({ type: 'message', content: 'Hjälp mig hitta garn' }));
+    ws.send(
+      JSON.stringify({ type: "message", content: "Hjälp mig hitta garn" }),
+    );
+
+    // Advance through all backoff delays (500ms + 1000ms = 1500ms total)
+    await vi.runAllTimersAsync();
 
     const messages = await collecting;
     ws.close();
 
-    const errorEvent = messages.find((m) => m.type === 'error');
+    vi.useRealTimers();
+
+    const errorEvent = messages.find((m) => m.type === "error");
     expect(errorEvent).toBeDefined();
-    expect(consoleErrorSpy).toHaveBeenCalledWith('OpenRouter chat error:', expect.any(Error));
+    expect(mockChatSend).toHaveBeenCalledTimes(3);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "OpenRouter chat error:",
+      expect.any(Error),
+    );
   });
 
-  it('should include product context in the system message', async () => {
+  it("should succeed on a retry after an initial failure", async () => {
+    vi.useFakeTimers();
+
+    mockChatSend
+      .mockRejectedValueOnce(new Error("Transient error"))
+      .mockResolvedValueOnce(
+        makeStream([{ choices: [{ delta: { content: "Hej!" } }] }]),
+      );
+
+    const ws = await connect();
+    const collecting = collectMessages(ws);
+
+    ws.send(JSON.stringify({ type: "message", content: "Hej" }));
+
+    // Advance through the first backoff delay (500ms)
+    await vi.runAllTimersAsync();
+
+    const messages = await collecting;
+    ws.close();
+
+    vi.useRealTimers();
+
+    expect(mockChatSend).toHaveBeenCalledTimes(2);
+    const tokens = messages.filter((m) => m.type === "token");
+    const done = messages.find((m) => m.type === "done");
+    expect(tokens[0].content).toBe("Hej!");
+    expect(done).toBeDefined();
+    // No error logged — the retry succeeded
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      "OpenRouter chat error:",
+      expect.any(Error),
+    );
+  });
+
+  it("should include product context in the system message", async () => {
     mockMeiliGetDocuments.mockResolvedValueOnce({
       results: [
         {
-          title: 'Merino Ull',
-          description: 'Mjukt garn',
+          title: "Merino Ull",
+          description: "Mjukt garn",
           minPriceAmount: 89,
-          minPriceCurrency: 'SEK',
-          collections: ['Ull'],
+          minPriceCurrency: "SEK",
+          collections: ["Ull"],
           options: [],
-          variantTitles: ['Röd', 'Blå'],
-          handle: 'merino-ull',
+          variantTitles: ["Röd", "Blå"],
+          handle: "merino-ull",
         },
       ],
     });
@@ -248,43 +325,64 @@ describe('Chat WebSocket handler', () => {
     const ws = await connect();
     const collecting = collectMessages(ws);
 
-    ws.send(JSON.stringify({ type: 'message', content: 'Vad har ni?' }));
+    ws.send(JSON.stringify({ type: "message", content: "Vad har ni?" }));
 
     await collecting;
     ws.close();
 
     expect(mockChatSend).toHaveBeenCalled();
-    const callArgs = mockChatSend.mock.calls[0][0] as { chatGenerationParams: { messages: Array<{ role: string; content: string }> } };
-    const systemMessage = callArgs.chatGenerationParams.messages.find((m) => m.role === 'system');
-    expect(systemMessage?.content).toContain('Merino Ull');
+    const callArgs = mockChatSend.mock.calls[0][0] as {
+      chatGenerationParams: {
+        messages: Array<{ role: string; content: string }>;
+      };
+    };
+    const systemMessage = callArgs.chatGenerationParams.messages.find(
+      (m) => m.role === "system",
+    );
+    expect(systemMessage?.content).toContain("Merino Ull");
   });
 
-  it('should preserve conversation history across multiple messages', async () => {
+  it("should preserve conversation history across multiple messages", async () => {
     mockChatSend
-      .mockResolvedValueOnce(makeStream([{ choices: [{ delta: { content: 'Jag kan hjälpa!' } }] }]))
-      .mockResolvedValueOnce(makeStream([{ choices: [{ delta: { content: 'Självklart!' } }] }]));
+      .mockResolvedValueOnce(
+        makeStream([{ choices: [{ delta: { content: "Jag kan hjälpa!" } }] }]),
+      )
+      .mockResolvedValueOnce(
+        makeStream([{ choices: [{ delta: { content: "Självklart!" } }] }]),
+      );
 
     const ws = await connect();
 
     // First message
     let collecting = collectMessages(ws);
-    ws.send(JSON.stringify({ type: 'message', content: 'Hej!' }));
+    ws.send(JSON.stringify({ type: "message", content: "Hej!" }));
     await collecting;
 
     // Second message
     collecting = collectMessages(ws);
-    ws.send(JSON.stringify({ type: 'message', content: 'Kan du rekommendera något?' }));
+    ws.send(
+      JSON.stringify({
+        type: "message",
+        content: "Kan du rekommendera något?",
+      }),
+    );
     await collecting;
 
     ws.close();
 
     // Second call should include the full history (system + user1 + assistant1 + user2)
-    const secondCallArgs = mockChatSend.mock.calls[1][0] as { chatGenerationParams: { messages: Array<{ role: string; content: string }> } };
+    const secondCallArgs = mockChatSend.mock.calls[1][0] as {
+      chatGenerationParams: {
+        messages: Array<{ role: string; content: string }>;
+      };
+    };
     const msgs = secondCallArgs.chatGenerationParams.messages;
 
-    expect(msgs.some((m) => m.role === 'system')).toBe(true);
-    expect(msgs.filter((m) => m.role === 'user')).toHaveLength(2);
-    expect(msgs.filter((m) => m.role === 'assistant')).toHaveLength(1);
-    expect(msgs.find((m) => m.role === 'assistant')?.content).toBe('Jag kan hjälpa!');
+    expect(msgs.some((m) => m.role === "system")).toBe(true);
+    expect(msgs.filter((m) => m.role === "user")).toHaveLength(2);
+    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(msgs.find((m) => m.role === "assistant")?.content).toBe(
+      "Jag kan hjälpa!",
+    );
   });
 });
