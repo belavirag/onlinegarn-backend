@@ -1,7 +1,7 @@
-import { WebSocketServer, WebSocket } from 'ws';
-import { IncomingMessage, Server } from 'http';
-import { getMeilisearch, PRODUCTS_INDEX } from './meilisearch';
-import { getOpenRouterClient } from './openrouter';
+import { WebSocketServer, WebSocket } from "ws";
+import { IncomingMessage, Server } from "http";
+import { getMeilisearch, PRODUCTS_INDEX } from "./meilisearch";
+import { getOpenRouterClient } from "./openrouter";
 
 // Inline types matching the OpenRouter SDK shapes (avoids sub-path import issues with CommonJS moduleResolution)
 interface ReasoningDetail {
@@ -14,17 +14,17 @@ interface ReasoningDetail {
 }
 
 interface SystemMessage {
-  role: 'system';
+  role: "system";
   content: string;
 }
 
 interface UserMessage {
-  role: 'user';
+  role: "user";
   content: string;
 }
 
 interface AssistantMessage {
-  role: 'assistant';
+  role: "assistant";
   content?: string | null;
   reasoning?: string | null;
   reasoningDetails?: ReasoningDetail[];
@@ -34,21 +34,21 @@ type ChatMessage = SystemMessage | UserMessage | AssistantMessage;
 
 // Message types sent over WebSocket to/from client
 interface ClientMessage {
-  type: 'message';
+  type: "message";
   content: string;
 }
 
 interface ServerTokenEvent {
-  type: 'token';
+  type: "token";
   content: string;
 }
 
 interface ServerDoneEvent {
-  type: 'done';
+  type: "done";
 }
 
 interface ServerErrorEvent {
-  type: 'error';
+  type: "error";
   message: string;
 }
 
@@ -56,13 +56,13 @@ type ServerEvent = ServerTokenEvent | ServerDoneEvent | ServerErrorEvent;
 
 // A conversation turn in our internal history
 interface ConversationMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: "system" | "user" | "assistant";
   content: string;
   reasoning?: string | null;
   reasoningDetails?: ReasoningDetail[];
 }
 
-const MODEL = 'openrouter/free';
+const MODEL = "openrouter/free";
 
 const SYSTEM_PROMPT = `Du är en shoppingassistent för onlinegarn.se, en svensk garnanaffär på nätet.
 
@@ -77,20 +77,21 @@ Hjälp kunden att hitta rätt produkter från butikens sortiment. Du får ALDRIG
 ## Hur du för konversationen
 1. Hälsa kort och fråga vad kunden tänker göra (sticka, virka, väva, annat).
 2. Ställ följdfrågor för att förstå: projekt (t.ex. tröja, mössa, scarf), önskad känsla/kvalitet, budget och färgpreferenser. Ställ max en eller två frågor i taget.
-3. När du har tillräckligt med information, ge 2–4 konkreta produktrekommendationer från sortimentet.
+3. När du har tillräckligt med information, ge 2-4 konkreta produktrekommendationer från sortimentet.
 4. Motivera kort varför varje produkt passar just den kunden.
 
 ## Rekommendationsformat
+Om du ger en rekommendation eller om en användare frågar efter en garn, länka de alltid till den.
 När du rekommenderar produkter, presentera dem så här:
-**[Produktnamn]** – [Pris] SEK
+**[Produktnamn]** - [Pris] SEK
 [En mening om varför den passar kunden.]
 Länk: https://onlinegarn.se/product/[handle]
 
 ## Begränsningar
 - Rekommendera bara produkter som faktiskt finns i sortimentslistan.
-- Om lagerstatus saknas, nämn inte det – fokusera på produkten.
+- Om lagerstatus saknas, nämn inte det - fokusera på produkten.
 - Spekulera inte om leveranstider, kampanjer eller annat som inte framgår av sortimentslistan.
-- Håll svaren kortfattade och fokuserade – detta är en chatt, inte en uppsats.
+- Håll svaren kortfattade och fokuserade - detta är en chatt, inte en uppsats.
 
 ## Sortiment
 Nedan följer butikens aktuella produkter i JSON-format. Varje produkt har: title (namn), description (beskrivning), price (pris i SEK), collections (kategorier), options (t.ex. färger), variants (varianter), handle (används i URL).
@@ -107,11 +108,23 @@ async function fetchProductContext(): Promise<string> {
   try {
     const meili = getMeilisearch();
     const index = meili.index(PRODUCTS_INDEX);
-    const result = await index.getDocuments({ limit: 200, fields: ['title', 'description', 'minPriceAmount', 'minPriceCurrency', 'collections', 'options', 'variantTitles', 'handle'] });
+    const result = await index.getDocuments({
+      limit: 200,
+      fields: [
+        "title",
+        "description",
+        "minPriceAmount",
+        "minPriceCurrency",
+        "collections",
+        "options",
+        "variantTitles",
+        "handle",
+      ],
+    });
 
     const products = result.results.map((p) => ({
       title: p.title,
-      description: p.description ? (p.description as string).slice(0, 200) : '',
+      description: p.description ? (p.description as string).slice(0, 200) : "",
       price: `${p.minPriceAmount} ${p.minPriceCurrency}`,
       collections: p.collections,
       options: p.options,
@@ -121,8 +134,8 @@ async function fetchProductContext(): Promise<string> {
 
     return JSON.stringify(products, null, 0);
   } catch (error) {
-    console.error('Failed to fetch product context for chat:', error);
-    return '[]';
+    console.error("Failed to fetch product context for chat:", error);
+    return "[]";
   }
 }
 
@@ -136,17 +149,28 @@ async function handleConnection(ws: WebSocket): Promise<void> {
   const history: ConversationMessage[] = [];
   let productContext: string | null = null;
 
-  ws.on('message', async (raw) => {
+  ws.on("message", async (raw) => {
     let parsed: ClientMessage;
     try {
       parsed = JSON.parse(raw.toString()) as ClientMessage;
     } catch {
-      send(ws, { type: 'error', message: 'Invalid message format. Expected JSON with type and content.' });
+      send(ws, {
+        type: "error",
+        message: "Invalid message format. Expected JSON with type and content.",
+      });
       return;
     }
 
-    if (parsed.type !== 'message' || typeof parsed.content !== 'string' || !parsed.content.trim()) {
-      send(ws, { type: 'error', message: 'Message must have type "message" and a non-empty content string.' });
+    if (
+      parsed.type !== "message" ||
+      typeof parsed.content !== "string" ||
+      !parsed.content.trim()
+    ) {
+      send(ws, {
+        type: "error",
+        message:
+          'Message must have type "message" and a non-empty content string.',
+      });
       return;
     }
 
@@ -156,24 +180,24 @@ async function handleConnection(ws: WebSocket): Promise<void> {
     }
 
     // Add user message to history
-    history.push({ role: 'user', content: parsed.content.trim() });
+    history.push({ role: "user", content: parsed.content.trim() });
 
     // Build messages array for the API call
     const systemMessage: ChatMessage = {
-      role: 'system',
-      content: SYSTEM_PROMPT.replace('{PRODUCTS}', productContext),
+      role: "system",
+      content: SYSTEM_PROMPT.replace("{PRODUCTS}", productContext),
     };
 
     const apiMessages: ChatMessage[] = [
       systemMessage,
       ...history.map((turn): ChatMessage => {
-        if (turn.role === 'user') {
-          return { role: 'user', content: turn.content };
+        if (turn.role === "user") {
+          return { role: "user", content: turn.content };
         }
         // Preserve reasoning_details on assistant messages so the model can
         // continue reasoning from where it left off
         const assistantMsg: AssistantMessage = {
-          role: 'assistant',
+          role: "assistant",
           content: turn.content,
         };
         if (turn.reasoning != null) {
@@ -195,13 +219,15 @@ async function handleConnection(ws: WebSocket): Promise<void> {
       const stream = await client.chat.send({
         chatGenerationParams: {
           model: MODEL,
-          messages: apiMessages as unknown as Parameters<typeof client.chat.send>[0]['chatGenerationParams']['messages'],
+          messages: apiMessages as unknown as Parameters<
+            typeof client.chat.send
+          >[0]["chatGenerationParams"]["messages"],
           stream: true,
-          reasoning: { effort: 'high' },
+          reasoning: { effort: "high" },
         },
       });
 
-      let assistantContent = '';
+      let assistantContent = "";
       let assistantReasoning: string | null = null;
       let assistantReasoningDetails: ReasoningDetail[] = [];
 
@@ -212,21 +238,23 @@ async function handleConnection(ws: WebSocket): Promise<void> {
         // Stream content tokens to client
         if (delta.content) {
           assistantContent += delta.content;
-          send(ws, { type: 'token', content: delta.content });
+          send(ws, { type: "token", content: delta.content });
         }
 
         // Accumulate reasoning for history preservation
         if (delta.reasoning) {
-          assistantReasoning = (assistantReasoning ?? '') + delta.reasoning;
+          assistantReasoning = (assistantReasoning ?? "") + delta.reasoning;
         }
         if (delta.reasoningDetails && delta.reasoningDetails.length > 0) {
-          assistantReasoningDetails = assistantReasoningDetails.concat(delta.reasoningDetails);
+          assistantReasoningDetails = assistantReasoningDetails.concat(
+            delta.reasoningDetails,
+          );
         }
       }
 
       // Store the complete assistant turn in history, preserving reasoning details
       const assistantTurn: ConversationMessage = {
-        role: 'assistant',
+        role: "assistant",
         content: assistantContent,
       };
       if (assistantReasoning != null) {
@@ -237,10 +265,13 @@ async function handleConnection(ws: WebSocket): Promise<void> {
       }
       history.push(assistantTurn);
 
-      send(ws, { type: 'done' });
+      send(ws, { type: "done" });
     } catch (error) {
-      console.error('OpenRouter chat error:', error);
-      send(ws, { type: 'error', message: 'Failed to get a response from the AI. Please try again.' });
+      console.error("OpenRouter chat error:", error);
+      send(ws, {
+        type: "error",
+        message: "Failed to get a response from the AI. Please try again.",
+      });
     }
   });
 }
@@ -250,23 +281,23 @@ async function handleConnection(ws: WebSocket): Promise<void> {
  * The WebSocket endpoint is available at ws://host/chat
  */
 export function attachChatWebSocket(server: Server): WebSocketServer {
-  const wss = new WebSocketServer({ server, path: '/chat' });
+  const wss = new WebSocketServer({ server, path: "/chat" });
 
-  wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+  wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     console.log(`WebSocket connection opened: ${req.socket.remoteAddress}`);
 
     handleConnection(ws).catch((error: unknown) => {
-      console.error('WebSocket handler error:', error);
-      send(ws, { type: 'error', message: 'Internal server error.' });
+      console.error("WebSocket handler error:", error);
+      send(ws, { type: "error", message: "Internal server error." });
       ws.close();
     });
 
-    ws.on('close', () => {
+    ws.on("close", () => {
       console.log(`WebSocket connection closed: ${req.socket.remoteAddress}`);
     });
 
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
+    ws.on("error", (error) => {
+      console.error("WebSocket error:", error);
     });
   });
 
