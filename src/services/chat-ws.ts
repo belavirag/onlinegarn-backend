@@ -62,7 +62,7 @@ interface ConversationMessage {
   reasoningDetails?: ReasoningDetail[];
 }
 
-const MODEL = "openrouter/free";
+const MODEL = "arcee-ai/trinity-mini:free";
 
 const SYSTEM_PROMPT = `Du är en shoppingassistent för onlinegarn.se, en svensk garnanaffär på nätet.
 
