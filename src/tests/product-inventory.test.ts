@@ -26,10 +26,9 @@ vi.mock('../services/shopify', () => {
   }
 
   return {
-    createGraphqlClient: vi.fn(() => new MockGraphqlClient()),
-    refreshAccessToken: vi.fn().mockResolvedValue(undefined),
+    createGraphqlClient: vi.fn(async () => new MockGraphqlClient()),
     getShopify: vi.fn(),
-    getAdminAccessToken: vi.fn(() => 'test_token'),
+    getAdminAccessToken: vi.fn(async () => 'test_token'),
   };
 });
 
@@ -37,7 +36,6 @@ vi.mock('../services/shopify', () => {
 vi.mock('@shopify/shopify-api/adapters/node', () => ({}));
 
 import productInventoryRoutes from '../routes/product-inventory';
-import { refreshAccessToken } from '../services/shopify';
 
 describe('Product Inventory Routes', () => {
   let app: Application;
@@ -175,32 +173,4 @@ describe('Product Inventory Routes', () => {
     );
   });
 
-  it('should refresh access token on cache miss', async () => {
-    mockRequest.mockResolvedValueOnce({
-      data: {
-        product: {
-          id: 'gid://shopify/Product/123',
-          title: 'Test Product',
-          variants: { edges: [] },
-        },
-      },
-    });
-
-    await request(app).get('/products/123/inventory').expect(200);
-
-    expect(refreshAccessToken).toHaveBeenCalledOnce();
-  });
-
-  it('should not refresh access token on cache hit', async () => {
-    const cachedData = {
-      id: 'gid://shopify/Product/123',
-      title: 'Cached Product',
-      variants: [],
-    };
-    mockRedisGet.mockResolvedValueOnce(JSON.stringify(cachedData));
-
-    await request(app).get('/products/123/inventory').expect(200);
-
-    expect(refreshAccessToken).not.toHaveBeenCalled();
-  });
 });

@@ -26,17 +26,15 @@ vi.mock('../services/shopify', () => {
   }
 
   return {
-    createGraphqlClient: vi.fn(() => new MockGraphqlClient()),
-    refreshAccessToken: vi.fn().mockResolvedValue(undefined),
+    createGraphqlClient: vi.fn(async () => new MockGraphqlClient()),
     getShopify: vi.fn(),
-    getAdminAccessToken: vi.fn(() => 'test_token'),
+    getAdminAccessToken: vi.fn(async () => 'test_token'),
   };
 });
 
 vi.mock('@shopify/shopify-api/adapters/node', () => ({}));
 
 import productsRoutes from '../routes/products';
-import { refreshAccessToken } from '../services/shopify';
 
 describe('Products Routes', () => {
   let app: Application;
@@ -233,30 +231,4 @@ describe('Products Routes', () => {
     );
   });
 
-  it('should refresh access token on cache miss', async () => {
-    mockRequest.mockResolvedValueOnce({
-      data: {
-        products: {
-          pageInfo: { hasNextPage: false, endCursor: null },
-          edges: [],
-        },
-      },
-    });
-
-    await request(app).get('/products').expect(200);
-
-    expect(refreshAccessToken).toHaveBeenCalledOnce();
-  });
-
-  it('should not refresh access token on cache hit', async () => {
-    const cachedData = {
-      products: [{ id: 'gid://shopify/Product/cached', title: 'Cached' }],
-      pageInfo: { hasNextPage: false, endCursor: null },
-    };
-    mockRedisGet.mockResolvedValueOnce(JSON.stringify(cachedData));
-
-    await request(app).get('/products').expect(200);
-
-    expect(refreshAccessToken).not.toHaveBeenCalled();
-  });
 });
