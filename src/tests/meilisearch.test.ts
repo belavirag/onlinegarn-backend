@@ -7,19 +7,19 @@ describe('Meilisearch Service', () => {
   });
 
   describe('initMeilisearch', () => {
-    it('should throw if MEILI_ENV is not set', async () => {
-      delete process.env.MEILI_ENV;
+    it('should throw if MEILI_ENDPOINT is not set', async () => {
+      delete process.env.MEILI_ENDPOINT;
       delete process.env.MEILI_API_KEY;
 
       const { initMeilisearch } = await import('../services/meilisearch');
 
       await expect(initMeilisearch()).rejects.toThrow(
-        'Missing required environment variable: MEILI_ENV'
+        'Missing required environment variable: MEILI_ENDPOINT'
       );
     });
 
     it('should throw if MEILI_API_KEY is not set', async () => {
-      process.env.MEILI_ENV = 'http://localhost:7700';
+      process.env.MEILI_ENDPOINT = 'http://localhost:7700';
       delete process.env.MEILI_API_KEY;
 
       const { initMeilisearch } = await import('../services/meilisearch');

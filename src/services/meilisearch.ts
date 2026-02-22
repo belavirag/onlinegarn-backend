@@ -10,9 +10,9 @@ export const PRODUCTS_INDEX = 'products';
  * Validates connectivity by checking health.
  */
 export async function initMeilisearch(): Promise<void> {
-  const host = process.env.MEILI_ENV;
+  const host = process.env.MEILI_ENDPOINT;
   if (!host) {
-    throw new Error('Missing required environment variable: MEILI_ENV');
+    throw new Error('Missing required environment variable: MEILI_ENDPOINT');
   }
 
   const apiKey = process.env.MEILI_API_KEY;
