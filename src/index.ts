@@ -6,6 +6,8 @@ import productInventoryRoutes from './routes/product-inventory';
 import collectionsRoutes from './routes/collections';
 import redis from './services/redis';
 import { initShopify } from './services/shopify';
+import { initMeilisearch } from './services/meilisearch';
+import { startProductSyncCron } from './services/product-sync';
 import { AppError } from './errors';
 
 const app: Application = express();
@@ -35,6 +37,8 @@ async function start(): Promise<void> {
   try {
     await redis.connect();
     await initShopify();
+    await initMeilisearch();
+    startProductSyncCron();
   } catch (error) {
     console.error('Failed to initialize services:', error);
     process.exit(1);
