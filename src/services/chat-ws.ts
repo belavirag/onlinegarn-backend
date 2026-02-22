@@ -84,7 +84,7 @@ Hjälp kunden att hitta rätt produkter från butikens sortiment. Du får ALDRIG
 När du rekommenderar produkter, presentera dem så här:
 **[Produktnamn]** – [Pris] SEK
 [En mening om varför den passar kunden.]
-Länk: https://onlinegarn.se/products/[handle]
+Länk: https://onlinegarn.se/product/[handle]
 
 ## Begränsningar
 - Rekommendera bara produkter som faktiskt finns i sortimentslistan.
