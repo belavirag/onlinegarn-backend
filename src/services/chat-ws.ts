@@ -237,8 +237,17 @@ async function handleConnection(ws: WebSocket): Promise<void> {
 
         // Stream content tokens to client
         if (delta.content) {
-          assistantContent += delta.content;
-          send(ws, { type: "token", content: delta.content });
+          // Trim leading whitespace from the very first token — some models emit
+          // a leading space as their first chunk, which ReactMarkdown strips when
+          // rendering, causing the text to appear without an expected leading space.
+          const chunk =
+            assistantContent === ""
+              ? delta.content.trimStart()
+              : delta.content;
+          if (chunk) {
+            assistantContent += chunk;
+            send(ws, { type: "token", content: chunk });
+          }
         }
 
         // Accumulate reasoning for history preservation

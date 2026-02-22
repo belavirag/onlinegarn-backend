@@ -128,6 +128,49 @@ describe('Chat WebSocket handler', () => {
     expect(done).toBeDefined();
   });
 
+  it('should trim leading whitespace from the first token', async () => {
+    mockChatSend.mockResolvedValueOnce(
+      makeStream([
+        { choices: [{ delta: { content: ' Hej' } }] },
+        { choices: [{ delta: { content: '!' } }] },
+      ]),
+    );
+
+    const ws = await connect();
+    const collecting = collectMessages(ws);
+
+    ws.send(JSON.stringify({ type: 'message', content: 'Hej!' }));
+
+    const messages = await collecting;
+    ws.close();
+
+    const tokens = messages.filter((m) => m.type === 'token');
+    expect(tokens).toHaveLength(2);
+    expect(tokens[0].content).toBe('Hej'); // leading space stripped
+    expect(tokens[1].content).toBe('!');
+  });
+
+  it('should not send a token event when first token is only whitespace', async () => {
+    mockChatSend.mockResolvedValueOnce(
+      makeStream([
+        { choices: [{ delta: { content: '  ' } }] }, // only whitespace
+        { choices: [{ delta: { content: 'Hej' } }] },
+      ]),
+    );
+
+    const ws = await connect();
+    const collecting = collectMessages(ws);
+
+    ws.send(JSON.stringify({ type: 'message', content: 'Hej!' }));
+
+    const messages = await collecting;
+    ws.close();
+
+    const tokens = messages.filter((m) => m.type === 'token');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].content).toBe('Hej');
+  });
+
   it('should return an error event on invalid JSON', async () => {
     const ws = await connect();
     const collecting = collectMessages(ws);
