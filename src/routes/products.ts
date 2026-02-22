@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { createGraphqlClient } from '../services/shopify';
 import { buildCacheKey, getCached } from '../services/cache';
+import { NotFoundError } from '../errors';
 
 const router = Router();
 
@@ -240,6 +241,123 @@ export async function fetchProducts(first: number, after?: string): Promise<Prod
     pageInfo: productsData.pageInfo,
   };
 }
+
+interface GraphQLProductByHandleResponse {
+  productByHandle: GraphQLProduct | null;
+}
+
+const ADMIN_PRODUCT_BY_HANDLE_QUERY = `
+  query AdminProductByHandle($handle: String!) {
+    productByHandle(handle: $handle) {
+      id
+      title
+      description
+      descriptionHtml
+      handle
+      priceRangeV2 {
+        minVariantPrice {
+          amount
+          currencyCode
+        }
+      }
+      media(first: 50) {
+        edges {
+          node {
+            __typename
+            ... on MediaImage {
+              image {
+                url
+                altText
+              }
+            }
+          }
+        }
+      }
+      variants(first: 10) {
+        edges {
+          node {
+            id
+            title
+            price
+            media(first: 1) {
+              edges {
+                node {
+                  __typename
+                  ... on MediaImage {
+                    image {
+                      url
+                      altText
+                    }
+                  }
+                }
+              }
+            }
+            inventoryQuantity
+            selectedOptions {
+              name
+              value
+            }
+          }
+        }
+      }
+      options {
+        name
+        values
+      }
+    }
+  }
+` as const;
+
+export async function fetchProductByHandle(handle: string): Promise<Product> {
+  const client = await createGraphqlClient();
+  const response = await client.request<GraphQLProductByHandleResponse>(ADMIN_PRODUCT_BY_HANDLE_QUERY, {
+    variables: { handle },
+  });
+
+  const product = response.data?.productByHandle;
+
+  if (!product) {
+    throw new NotFoundError(`Product with handle "${handle}" not found`);
+  }
+
+  return {
+    id: product.id,
+    title: product.title,
+    description: product.description,
+    descriptionHtml: product.descriptionHtml,
+    handle: product.handle,
+    minPrice: product.priceRangeV2.minVariantPrice,
+    images: extractImagesFromMedia(product.media.edges),
+    variants: product.variants.edges.map((varEdge: GraphQLVariantEdge) => {
+      const variantImage = extractImagesFromMedia(varEdge.node.media.edges);
+      return {
+        id: varEdge.node.id,
+        title: varEdge.node.title,
+        price: varEdge.node.price,
+        image: variantImage.length > 0 ? variantImage[0] : null,
+        inventoryQuantity: varEdge.node.inventoryQuantity,
+        selectedOptions: varEdge.node.selectedOptions,
+      };
+    }),
+    options: product.options,
+  };
+}
+
+router.get('/products/:handle', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const handle = req.params['handle'] as string;
+    const cacheKey = buildCacheKey('product-by-handle', { handle });
+    const result = await getCached(cacheKey, () => fetchProductByHandle(handle));
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error fetching product by handle:', error);
+    if (error instanceof NotFoundError) {
+      res.status(404).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to fetch product' });
+  }
+});
 
 router.get('/products', async (req: Request, res: Response): Promise<void> => {
   try {
