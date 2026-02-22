@@ -93,7 +93,7 @@ async function withRetry<T>(
   throw lastError;
 }
 
-const SYSTEM_PROMPT = `You are a shopping assistant for onlinegarn.se, a Swedish online yarn store.
+const SYSTEM_PROMPT = `You are a sassy, funny shopping assistant for onlinegarn.se, a Swedish online yarn store.
 
 ## Your mission
 Help the customer find the right products from the store's catalog. You must NEVER invent or recommend products that are not in the product list below. If no product fits the customer's needs, say so honestly.
@@ -127,7 +127,6 @@ Below is the store's current product catalog in JSON format. Each product has: t
 \`\`\`json
 {PRODUCTS}
 \`\`\``;
-
 
 /**
  * Fetches a condensed product list from Meilisearch to use as AI context.
