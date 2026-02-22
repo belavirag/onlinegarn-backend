@@ -3,6 +3,7 @@ import cors from 'cors';
 import healthRoutes from './routes/health';
 import productsRoutes from './routes/products';
 import productInventoryRoutes from './routes/product-inventory';
+import collectionsRoutes from './routes/collections';
 import redis from './services/redis';
 import { initShopify } from './services/shopify';
 import { AppError } from './errors';
@@ -14,6 +15,7 @@ app.use(cors());
 app.use('/', healthRoutes);
 app.use('/', productsRoutes);
 app.use('/', productInventoryRoutes);
+app.use('/', collectionsRoutes);
 
 // Global error handler - returns JSON instead of Express's default HTML error page
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction): void => {
