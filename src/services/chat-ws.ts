@@ -62,7 +62,7 @@ interface ConversationMessage {
   reasoningDetails?: ReasoningDetail[];
 }
 
-const MODEL = "arcee-ai/trinity-mini:free";
+const MODEL = "z-ai/glm-4.5-air:free";
 
 /** Maximum number of attempts for an OpenRouter API call (1 original + N-1 retries). */
 const MAX_ATTEMPTS = 3;
