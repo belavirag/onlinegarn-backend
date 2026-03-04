@@ -20,13 +20,12 @@ export async function initShopify(): Promise<void> {
   const apiSecretKey = getRequiredEnv('SHOPIFY_API_SECRET');
   const appUrl = getRequiredEnv('SHOPIFY_APP_URL');
 
-  // Validate that OAuth token exists and is valid (will throw if not)
-  const token = await getAdminAccessToken();
+  await getAdminAccessToken();
 
   shopify = shopifyApi({
     apiKey,
     apiSecretKey,
-    adminApiAccessToken: token,
+    adminApiAccessToken: '',
     hostName: appUrl.replace(/https?:\/\//, ''),
     apiVersion,
     scopes: [],
