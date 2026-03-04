@@ -3,6 +3,7 @@ import { shopifyApi, ApiVersion } from '@shopify/shopify-api';
 import redis from './redis';
 
 let shopify: ReturnType<typeof shopifyApi> | null = null;
+let cachedToken: string | null = null;
 
 function getRequiredEnv(name: string): string {
   const value = process.env[name];
@@ -12,7 +13,7 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
-export async function initShopify(): Promise<void> {
+async function createShopifyInstance(token: string): Promise<ReturnType<typeof shopifyApi>> {
   const apiVersion: ApiVersion =
     (process.env.SHOPIFY_API_VERSION as ApiVersion) || ApiVersion.April25;
 
@@ -20,17 +21,21 @@ export async function initShopify(): Promise<void> {
   const apiSecretKey = getRequiredEnv('SHOPIFY_API_SECRET');
   const appUrl = getRequiredEnv('SHOPIFY_APP_URL');
 
-  await getAdminAccessToken();
-
-  shopify = shopifyApi({
+  return shopifyApi({
     apiKey,
     apiSecretKey,
-    adminApiAccessToken: '',
+    adminApiAccessToken: token,
     hostName: appUrl.replace(/https?:\/\//, ''),
     apiVersion,
     scopes: [],
     isEmbeddedApp: false,
   });
+}
+
+export async function initShopify(): Promise<void> {
+  const token = await getAdminAccessToken();
+  shopify = await createShopifyInstance(token);
+  cachedToken = token;
 }
 
 export function getShopify(): ReturnType<typeof shopifyApi> {
@@ -67,17 +72,20 @@ export async function getAdminAccessToken(): Promise<string> {
 
 /**
  * Creates a Shopify GraphQL client with the admin access token.
- * Extracts the duplicated session/client creation pattern from route handlers.
- * Fetches the token fresh from Redis each time to handle token refreshes.
+ * Re-initializes the Shopify instance if the token has changed.
  */
 export async function createGraphqlClient(): Promise<InstanceType<ReturnType<typeof shopifyApi>['clients']['Graphql']>> {
-  const shop = getShopify();
   const accessToken = await getAdminAccessToken();
 
-  const session = shop.session.customAppSession(
+  if (!shopify || cachedToken !== accessToken) {
+    shopify = await createShopifyInstance(accessToken);
+    cachedToken = accessToken;
+  }
+
+  const session = shopify.session.customAppSession(
     process.env.SHOPIFY_SHOP_DOMAIN || 'unknown.myshopify.com'
   );
   session.accessToken = accessToken;
 
-  return new shop.clients.Graphql({ session });
+  return new shopify.clients.Graphql({ session });
 }
